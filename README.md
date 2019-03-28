@@ -4,10 +4,11 @@ Based on [https://gist.github.com/jamesbulpin/b940e7d81e2e65158f12e59b4d6a0c3c]
 
 ## Installation
 
-Get the repo, install python3.7, install prerequisites with
+Get the repo, install python3-pip, install prerequisites with
 
 ```
 git clone https://github.com/odtgit/evmqtt
+sudo apt install python3-pip
 pip3 install paho-mqtt evdev
 ```
 
@@ -22,7 +23,6 @@ Broker config goes in ~/.config/config_mqtt.json as shown below
     "port":1883,
     "username":"user",
     "password":"pwd",
-    "topic":"homeassistant/sensor/loungeremote/state",
     "protocol":{
       "protocolId":"MQIsdp",
       "protocolVersion":3
@@ -34,7 +34,7 @@ Broker config goes in ~/.config/config_mqtt.json as shown below
 Modify these lines at the bottom of evmqtt.py to suit your needs and add more instances if you want
 
 ```
-im0 = InputMonitor(mq.mqttclient, "/dev/input/event3", mqttcfg["mqtt"]["topic"])
+im0 = InputMonitor(mq.mqttclient, "/dev/input/event3", "homeassistant/sensor/loungeremote/state")
 im0.start()
 ```
 

@@ -1,4 +1,4 @@
-#!/usr/bin/env python3.7
+#!/usr/bin/env python3
 
 import os
 import signal
@@ -177,12 +177,12 @@ if __name__ == "__main__":
         #topic = MQTTClient(topic, mqttcfg)
 
         # your event device, IR, whatever goes here
-        im0 = InputMonitor(mq.mqttclient, "/dev/input/event3", mqttcfg["mqtt"]["topic"])
+        im0 = InputMonitor(mq.mqttclient, "/dev/input/event3", "homeassistant/sensor/loungeremote/state")
         im0.start()
 
         # add more instances
-        # im1 = InputMonitor(mq.mqttclient, "/dev/input/event1", someothertopic)
-        # im1.start()
+        #im1 = InputMonitor(mq.mqttclient, "/dev/input/event1", "homeassistant/sensor/loungekbd/state")
+        #im1.start()
 
     except getopt.GetoptError as e:
         log("Top level exception: %s" % str(e))
