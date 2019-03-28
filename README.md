@@ -69,7 +69,7 @@ I've found this works best with toggle
   trigger:
   - payload: KEY_1
     platform: mqtt
-    topic: homeassistant/sensor/lounge
+    topic: homeassistant/sensor/loungeremote/state
   condition: []
   action:
   - data:
