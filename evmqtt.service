@@ -1,0 +1,16 @@
+[Unit]
+Description = Input event to MQTT gateway
+After=hassio-supervisor.service
+Requires=hassio-supervisor.service
+
+[Service]
+User = odt
+Group = odt
+Type=simple
+ExecStart=/home/odt/prod/evmqtt/evmqtt.py
+Restart = always
+RestartSec = 60
+
+[Install]
+WantedBy=multi-user.target
+
