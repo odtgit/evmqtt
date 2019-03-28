@@ -180,6 +180,10 @@ if __name__ == "__main__":
         im0 = InputMonitor(mq.mqttclient, "/dev/input/event3", mqttcfg["mqtt"]["topic"])
         im0.start()
 
+        # add more instances
+        # im1 = InputMonitor(mq.mqttclient, "/dev/input/event1", someothertopic)
+        # im1.start()
+
     except getopt.GetoptError as e:
         log("Top level exception: %s" % str(e))
 
