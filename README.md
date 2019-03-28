@@ -1,8 +1,19 @@
- Very simple Linux input event to MQTT gateway
- based on https://gist.github.com/jamesbulpin/b940e7d81e2e65158f12e59b4d6a0c3c
- To install do first pip3 install paho-mqtt evdev
+# Very simple Linux input event to MQTT gateway
 
-Broker config goes in ~/.config/config_mqtt.json as
+Based on [https://gist.github.com/jamesbulpin/b940e7d81e2e65158f12e59b4d6a0c3c]
+
+## Installation
+
+Get the repo, install python3.7, install prerequisites with
+
+```
+git clone https://github.com/odtgit/evmqtt
+pip3 install paho-mqtt evdev
+```
+
+## Configuration
+
+Broker config goes in ~/.config/config_mqtt.json as shown below 
 
 ```
 {
@@ -19,6 +30,26 @@ Broker config goes in ~/.config/config_mqtt.json as
   }
 }
 ```
+
+Modify these lines at the bottom of evmqtt.py to suit your needs and add more instances if you want
+
+```
+im0 = InputMonitor(mq.mqttclient, "/dev/input/event3", mqttcfg["mqtt"]["topic"])
+im0.start()
+```
+
+## Usage
+
+Change path and user to evqmtt.py in evmqtt.service file. Copy it to /etc/systemd/systemd and run with
+
+```
+sudo systemctl daemon-reload
+sudo systemctl start evmqtt
+sudo systemctl enable evmqtt
+```
+
+
+## Integration with Home Assistant
 
 Example config for HA configuration.yaml to get a sensor
 
