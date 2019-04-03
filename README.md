@@ -1,9 +1,12 @@
 # Very simple Linux input event to MQTT gateway
 
-This program allows you to capture linux input events via [evdev][https://python-evdev.readthedocs.io/en/latest/]
-and publish them to an MQTT broker.
+This program allows you to capture linux input events via [link][evdev]
+and publish them to an MQTT broker. This can for example be used to turn IR button presses to triggers in Home Assistant.
 
-Based on the [original][https://gist.github.com/jamesbulpin/b940e7d81e2e65158f12e59b4d6a0c3c] implementation by James Bulpin.
+Based on the original [link][gist] by James Bulpin.
+
+[evdev]: https://python-evdev.readthedocs.io/en/latest/
+[gist]: https://gist.github.com/jamesbulpin/b940e7d81e2e65158f12e59b4d6a0c3c] 
 
 ## Installation
 
