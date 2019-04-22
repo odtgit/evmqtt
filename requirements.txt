@@ -1,0 +1,3 @@
+setuptools
+paho-mqtt
+evdev

@@ -161,13 +161,8 @@ if __name__ == "__main__":
         Watcher()
 
         mqttcfg = json.load(
-                open(
-                    join(
-                        env.get("XDG_CONFIG_HOME", join(expanduser("~"), ".config")),
-                        "config_mqtt.json")
-                    )
+                open("config.json")
                 )
-
 
         myname = "EV_" + '_'.join(("%012X" % uuid.getnode())[i:i+2] for i in range(0, 12, 2))
         mq = MQTTClient(myname, mqttcfg)

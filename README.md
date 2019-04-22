@@ -1,11 +1,12 @@
 # Very simple Linux input event to MQTT gateway
 
 This program allows you to capture linux input events via [evdev](https://python-evdev.readthedocs.io/en/latest)
-and publish them to an MQTT broker. This can for example be used to turn IR button presses to triggers in Home Assistant.
+and publish them to an MQTT broker. This can for example be used to turn IR button presses to triggers in Home Assistant
+if you are already using ir-keytable.
 
 Based on the original [gist](https://gist.github.com/jamesbulpin/b940e7d81e2e65158f12e59b4d6a0c3c) by James Bulpin.
 
-## Installation
+## Installation as a service
 
 Get the repo, install python3-pip, install prerequisites with
 
@@ -17,7 +18,7 @@ pip3 install paho-mqtt evdev
 
 ## Configuration
 
-Broker config goes in ~/.config/config_mqtt.json as shown below 
+Broker config goes in config.json as shown below 
 
 ``` json
 {
@@ -41,13 +42,23 @@ im0 = InputMonitor(mq.mqttclient, "/dev/input/event3", "homeassistant/sensor/lou
 im0.start()
 ```
 
-## Usage
+## Run in a docker container
 
-In the evmqtt.service file change the path to the script and the executing user. Copy it to /etc/systemd/systemd and run with
+First do the configuration changes above and then build/run
+
+```bash
+docker build .
+docker run -d --network host --device=/dev/input/event3 --name evmqtt <image_id>
+```
+
+
+## Run as a service
+
+In the evmqtt.service file change the path to the script and the executing user. Copy it to /etc/systemd/system and run with
 
 ``` bash
-sudo systemctl start evmqtt
 sudo systemctl enable evmqtt
+sudo systemctl start evmqtt
 ```
 
 
