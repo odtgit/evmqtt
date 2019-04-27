@@ -10,7 +10,7 @@ Based on the original [gist](https://gist.github.com/jamesbulpin/b940e7d81e2e651
 
 Get the repo, install python3-pip, install prerequisites with
 
-``` bash
+```bash
 git clone https://github.com/odtgit/evmqtt
 sudo apt install python3-pip
 pip3 install paho-mqtt evdev
@@ -20,7 +20,7 @@ pip3 install paho-mqtt evdev
 
 Broker config goes in config.json as shown below 
 
-``` json
+```json
 {
   "mqtt":{
     "serverip":"127.0.0.1",
@@ -37,7 +37,7 @@ Broker config goes in config.json as shown below
 
 Modify these lines at the bottom of evmqtt.py to suit your needs and add more instances if you want
 
-``` python
+```python
 im0 = InputMonitor(mq.mqttclient, "/dev/input/event3", "homeassistant/sensor/loungeremote/state")
 im0.start()
 ```
@@ -56,7 +56,7 @@ docker run -d --network host --device=/dev/input/event3 --name evmqtt <image_id>
 
 In the evmqtt.service file change the path to the script and the executing user. Copy it to /etc/systemd/system and run with
 
-``` bash
+```bash
 sudo systemctl enable evmqtt
 sudo systemctl start evmqtt
 ```
@@ -66,7 +66,7 @@ sudo systemctl start evmqtt
 
 Example config for HA configuration.yaml to get a sensor
 
-``` yaml
+```yaml
 sensor:
   - platform: mqtt
     name: loungeremote
@@ -76,7 +76,7 @@ sensor:
 Example automation based on MQTT Event (quickest, and registers each message if you press same key)
 I've found this works best with toggle
 
-``` yaml
+```yaml
 - id: loungeremote MQTT KEY_1
   alias: loungeremote MQTT KEY_1
   trigger:
