@@ -14,10 +14,12 @@ from platform import node as hostname
 import evdev
 import paho.mqtt.client as mqtt
 
+
 def log(s):
     m = "[%s] %s\n" % (datetime.datetime.now(), s)
     sys.stderr.write(m + "\n")
     sys.stderr.flush()
+
 
 class Watcher:
 
@@ -41,21 +43,28 @@ class Watcher:
     def kill(self):
         try:
             os.kill(self.child, signal.SIGKILL)
-        except OSError: pass
+        except OSError:
+            pass
 
 # The callback for when the client receives a CONNACK response from the server.
+
+
 def on_connect(client, rc):
-    log("Connected with result code "+str(rc))
+    log("Connected with result code " + str(rc))
     # Subscribing in on_connect() means that if we lose the connection and
     # reconnect then subscriptions will be renewed.
     client.subscribe("topic")
 
 # The callback for when a PUBLISH message is received from the server.
+
+
 def on_message(msg):
     msgpayload = str(msg.payload)
-    print(msg.topic+" "+msgpayload)
+    print(msg.topic + " " + msgpayload)
 
-#class MQTTClient:
+# class MQTTClient:
+
+
 class MQTTClient(threading.Thread):
 
     def __init__(self, clientid, mqttcfg):
@@ -90,7 +99,9 @@ class MQTTClient(threading.Thread):
         log("Signalling disconnect to MQTT loop")
         self.connected = False
 
+
 key_state = {}
+
 
 def get_modifiers():
     global key_state
@@ -103,8 +114,14 @@ def get_modifiers():
         return ""
     return "_" + "_".join(ret)
 
-# the number keys on the remote always set and unset numlock - this is superfluous for my use-case
-modifiers = ["KEY_LEFTSHIFT", "KEY_RIGHTSHIFT", "KEY_LEFTCTRL", "KEY_RIGHTCTRL"]
+
+# the number keys on the remote always set and unset numlock - this is
+# superfluous for my use-case
+modifiers = [
+    "KEY_LEFTSHIFT",
+    "KEY_RIGHTSHIFT",
+    "KEY_LEFTCTRL",
+    "KEY_RIGHTCTRL"]
 ignore = ["KEY_NUMLOCK"]
 
 
@@ -113,17 +130,20 @@ def set_modifier(keycode, keystate):
     if keycode in modifiers:
         key_state[keycode] = keystate
 
+
 def is_modifier(keycode):
     global modifiers
     if keycode in modifiers:
         return True
     return False
 
+
 def is_ignore(keycode):
     global ignore
     if keycode in ignore:
         return True
     return False
+
 
 class InputMonitor(threading.Thread):
 
@@ -151,6 +171,7 @@ class InputMonitor(threading.Thread):
                         self.mqttclient.publish(self.topic, msg)
                         # log what we publish
                         log("Published message %s" % (msg))
+
 
 if __name__ == "__main__":
 
