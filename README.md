@@ -22,24 +22,22 @@ Broker config goes in config.json as shown below
 
 ```json
 {
-  "mqtt":{
-    "serverip":"127.0.0.1",
-    "port":1883,
-    "username":"user",
-    "password":"pwd",
-    "protocol":{
-      "protocolId":"MQIsdp",
-      "protocolVersion":3
-    }
-  }
+  "serverip":"127.0.0.1",
+  "port":1883,
+  "username":"user",
+  "password":"pwd"
 }
 ```
 
-Modify these lines at the bottom of evmqtt.py to suit your needs and add more instances if you want
+Modify these lines at the bottom of evmqtt.py to match your device and topic and add more instances if needed
 
 ```python
-im0 = InputMonitor(mq.mqttclient, "/dev/input/event3", "homeassistant/sensor/loungeremote/state")
-im0.start()
+        IM0 = InputMonitor(
+            MQ.mqttclient,
+            "/dev/input/event3",
+            "homeassistant/sensor/loungeremote/state"
+        )
+
 ```
 
 ## Run in a docker container

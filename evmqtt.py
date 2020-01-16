@@ -1,19 +1,18 @@
-#!/usr/bin/env python3
+"""
+Linux input event to MQTT gateway
+https://github.com/odtgit/evmqtt
+"""
 
 import os
 import signal
-import uuid
 import threading
 import sys
-import time
 import datetime
-import subprocess
-import paho.mqtt.client as mqtt
-import evdev
 import json
-import getopt
-from os.path import join, expanduser
-from os import environ as env
+from time import time
+from platform import node as hostname
+import evdev
+import paho.mqtt.client as mqtt
 
 def log(s):
     m = "[%s] %s\n" % (datetime.datetime.now(), s)
@@ -45,26 +44,26 @@ class Watcher:
         except OSError: pass
 
 # The callback for when the client receives a CONNACK response from the server.
-def on_connect(client, userdata, flags, rc):
+def on_connect(client, rc):
     log("Connected with result code "+str(rc))
     # Subscribing in on_connect() means that if we lose the connection and
     # reconnect then subscriptions will be renewed.
-    #client.subscribe("topic")
+    client.subscribe("topic")
 
 # The callback for when a PUBLISH message is received from the server.
-def on_message(client, userdata, msg):
-     msgpayload = str(msg.payload)
-     print(msg.topic+" "+msgpayload)
+def on_message(msg):
+    msgpayload = str(msg.payload)
+    print(msg.topic+" "+msgpayload)
 
 #class MQTTClient:
 class MQTTClient(threading.Thread):
 
     def __init__(self, clientid, mqttcfg):
         super(MQTTClient, self).__init__()
-        serverip = mqttcfg["mqtt"]["serverip"]
-        port = mqttcfg["mqtt"]["port"]
-        username = mqttcfg["mqtt"]["username"]
-        password = mqttcfg["mqtt"]["password"]
+        serverip = mqttcfg["serverip"]
+        port = mqttcfg["port"]
+        username = mqttcfg["username"]
+        password = mqttcfg["password"]
         log("MQTT connecting to %s:%u" % (serverip, port))
         self.mqttclient = mqtt.Client(clientid, protocol=mqtt.MQTTv31)
         self.mqttclient.username_pw_set(username, password)
@@ -76,15 +75,16 @@ class MQTTClient(threading.Thread):
 
     def run(self):
         while self.connected:
-           rc = self.mqttclient.loop(10)
-           if rc == 7:
-               log("MQTT attempting reconnect")
-               self.mqttclient.reconnect()
+            rc = self.mqttclient.loop(10)
+            if rc == 7:
+                log("MQTT attempting reconnect")
+                self.mqttclient.reconnect()
         try:
             log("MQTT attempting disconnect")
             self.disconnect()
-        except getopt.GetoptError as e:
-            pass
+        except (OSError, KeyError):
+            log("Exception: %s")
+            return None
 
     def disconnect(self):
         log("Signalling disconnect to MQTT loop")
@@ -103,8 +103,10 @@ def get_modifiers():
         return ""
     return "_" + "_".join(ret)
 
+# the number keys on the remote always set and unset numlock - this is superfluous for my use-case
 modifiers = ["KEY_LEFTSHIFT", "KEY_RIGHTSHIFT", "KEY_LEFTCTRL", "KEY_RIGHTCTRL"]
-ignore = ["KEY_NUMLOCK"] # the number keys on the remote always set and unset numlock - this is superfluous for my use-case
+ignore = ["KEY_NUMLOCK"]
+
 
 def set_modifier(keycode, keystate):
     global key_state, modifiers
@@ -124,7 +126,6 @@ def is_ignore(keycode):
     return False
 
 class InputMonitor(threading.Thread):
-#class InputMonitor:
 
     def __init__(self, mqttclient, device, topic):
         super(InputMonitor, self).__init__()
@@ -132,17 +133,13 @@ class InputMonitor(threading.Thread):
         self.device = evdev.InputDevice(device)
         self.topic = topic
         log("Monitoring %s and sending to topic %s" % (device, topic))
-        # TODO configuration publishing for discovery
-        # self.mqttclient.publish('homeassistant/sensor/loungeremote/config', msg)
-        # log("Configuration topic published")
-
 
     def run(self):
         global key_state
 
         # Grab the input device to avoid keypresses also going to th
         # Linux console (and attempting to login)
-        #self.device.grab()
+        self.device.grab()
 
         for event in self.device.read_loop():
             if event.type == evdev.ecodes.EV_KEY:
@@ -160,25 +157,32 @@ if __name__ == "__main__":
     try:
         Watcher()
 
-        mqttcfg = json.load(
-                open("config.json")
-                )
+        MQTTCFG = json.load(
+            open("config.json")
+        )
 
-        myname = "EV_" + '_'.join(("%012X" % uuid.getnode())[i:i+2] for i in range(0, 12, 2))
-        mq = MQTTClient(myname, mqttcfg)
-        mq.start()
+        CLIENT = "evmqtt_{hostname}_{time}".format(
+            hostname=hostname(), time=time()
+        )
 
-        # The MQTT topic, also use it in the HA sensor
-        #topic = MQTTClient(topic, mqttcfg)
+        MQ = MQTTClient(CLIENT, MQTTCFG)
+        MQ.start()
 
-        # your event device, IR, whatever goes here
-        im0 = InputMonitor(mq.mqttclient, "/dev/input/event3", "homeassistant/sensor/loungeremote/state")
-        im0.start()
+        # your event key device, IR, whatever goes here
+        IM0 = InputMonitor(
+            MQ.mqttclient,
+            "/dev/input/event4",
+            "homeassistant/sensor/loungeremote/state"
+        )
+        IM0.start()
 
         # add more instances
-        #im1 = InputMonitor(mq.mqttclient, "/dev/input/event1", "homeassistant/sensor/loungekbd/state")
-        #im1.start()
+        # IM1 = InputMonitor(
+        #     MQ.mqttclient,
+        #     "/dev/input/event1",
+        #     "homeassistant/sensor/loungekbd/state"
+        # )
+        # IM1.start()
 
-    except getopt.GetoptError as e:
-        log("Top level exception: %s" % str(e))
-
+    except (OSError, KeyError):
+        log("Exception: %s")

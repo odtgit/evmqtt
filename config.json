@@ -1,12 +1,6 @@
 {
-  "mqtt":{
-    "serverip":"127.0.0.1",
-    "port":1883,
-    "username":"user",
-    "password":"pwd",
-    "protocol":{
-      "protocolId":"MQIsdp",
-      "protocolVersion":3
-    }
-  }
+  "serverip":"127.0.0.1",
+  "port":1883,
+  "username":"user",
+  "password":"pwd"
 }
