@@ -1,3 +1,2 @@
-setuptools
 paho-mqtt
 evdev

@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 Linux input event to MQTT gateway
 https://github.com/odtgit/evmqtt
