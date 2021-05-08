@@ -197,35 +197,12 @@ if __name__ == "__main__":
         MQ.start()
 
         topic = MQTTCFG["topic"]
+        devices = MQTTCFG["devices"]
 
-        IM0 = InputMonitor(
-            MQ.mqttclient,
-            "/dev/input/event0",
-            topic
-        )
-        IM0.start()
+        IM = [ InputMonitor(MQ.mqttclient, device, topic) for device in devices]
 
-        IM1 = InputMonitor(
-            MQ.mqttclient,
-            "/dev/input/event1",
-            topic
-        )
-        IM1.start()
-
-        IM2 = InputMonitor(
-            MQ.mqttclient,
-            "/dev/input/event2",
-            topic
-        )
-        IM2.start()
-
-        IM3 = InputMonitor(
-            MQ.mqttclient,
-            "/dev/input/event3",
-            topic
-        )
-        IM3.start()
-
+        for monitor in IM:
+            monitor.start()
 
     except (OSError, KeyError):
         log("Exception: %s")

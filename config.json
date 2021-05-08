@@ -3,5 +3,6 @@
   "port":1883,
   "username":"user",
   "password":"pwd",
-  "topic":"evmqtt/remote_dev/state"
+  "topic":"evmqtt/remote_dev/state",
+  "devices": ["/dev/input/event0", "/dev/input/event1"]
 }
