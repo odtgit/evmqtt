@@ -173,10 +173,14 @@ class InputMonitor(threading.Thread):
                 set_modifier(k.keycode, k.keystate)
                 if not is_modifier(k.keycode) and not is_ignore(k.keycode):
                     if k.keystate == 1:
-                        msg = concat_multikeys(k.keycode) + get_modifiers()
-                        self.mqttclient.publish(self.topic, msg)
+                        msg = {
+                            "key": concat_multikeys(k.keycode) + get_modifiers(),
+                            "devicePath": self.device.path
+                        }
+                        msg_json = json.dumps(msg)
+                        self.mqttclient.publish(self.topic, msg_json)
                         # log what we publish
-                        log("Device '%s', published message %s" % (self.device.path, msg))
+                        log("Device '%s', published message %s" % (self.device.path, msg_json))
 
 
 if __name__ == "__main__":
