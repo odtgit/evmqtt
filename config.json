@@ -2,5 +2,6 @@
   "serverip":"127.0.0.1",
   "port":1883,
   "username":"user",
-  "password":"pwd"
+  "password":"pwd",
+  "topic":"evmqtt/remote_dev/state"
 }

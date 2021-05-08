@@ -145,6 +145,12 @@ def is_ignore(keycode):
         return True
     return False
 
+def concat_multikeys(keycode):
+    # Handles case on my remote where multiple keys returned, ie: mute returns KEY_MIN_INTERESTING and KEY_MUTE in a list
+    ret = keycode
+    if isinstance(ret, list):
+        ret = "|".join(ret)
+    return ret
 
 class InputMonitor(threading.Thread):
 
@@ -168,7 +174,7 @@ class InputMonitor(threading.Thread):
                 set_modifier(k.keycode, k.keystate)
                 if not is_modifier(k.keycode) and not is_ignore(k.keycode):
                     if k.keystate == 1:
-                        msg = k.keycode + get_modifiers()
+                        msg = concat_multikeys(k.keycode) + get_modifiers()
                         self.mqttclient.publish(self.topic, msg)
                         # log what we publish
                         log("Published message %s" % (msg))
@@ -190,21 +196,36 @@ if __name__ == "__main__":
         MQ = MQTTClient(CLIENT, MQTTCFG)
         MQ.start()
 
-        # your event key device, IR, whatever goes here
+        topic = MQTTCFG["topic"]
+
         IM0 = InputMonitor(
             MQ.mqttclient,
-            "/dev/input/event4",
-            "homeassistant/sensor/loungeremote/state"
+            "/dev/input/event0",
+            topic
         )
         IM0.start()
 
-        # add more instances
-        # IM1 = InputMonitor(
-        #     MQ.mqttclient,
-        #     "/dev/input/event1",
-        #     "homeassistant/sensor/loungekbd/state"
-        # )
-        # IM1.start()
+        IM1 = InputMonitor(
+            MQ.mqttclient,
+            "/dev/input/event1",
+            topic
+        )
+        IM1.start()
+
+        IM2 = InputMonitor(
+            MQ.mqttclient,
+            "/dev/input/event2",
+            topic
+        )
+        IM2.start()
+
+        IM3 = InputMonitor(
+            MQ.mqttclient,
+            "/dev/input/event3",
+            topic
+        )
+        IM3.start()
+
 
     except (OSError, KeyError):
         log("Exception: %s")
