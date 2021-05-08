@@ -12,15 +12,14 @@ import datetime
 import json
 from time import time
 from platform import node as hostname
+from pathlib import Path
 import evdev
 import paho.mqtt.client as mqtt
-
 
 def log(s):
     m = "[%s] %s\n" % (datetime.datetime.now(), s)
     sys.stderr.write(m + "\n")
     sys.stderr.flush()
-
 
 class Watcher:
 
@@ -185,8 +184,14 @@ if __name__ == "__main__":
     try:
         Watcher()
 
+        config_filename = "config.local.json"
+        config_file = Path(config_filename)
+        if not config_file.is_file():
+            config_filename = "config.json"
+
+        log("Loading config from '%s'" % config_filename)
         MQTTCFG = json.load(
-            open("config.json")
+            open(config_filename)
         )
 
         CLIENT = "evmqtt_{hostname}_{time}".format(
