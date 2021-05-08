@@ -176,7 +176,7 @@ class InputMonitor(threading.Thread):
                         msg = concat_multikeys(k.keycode) + get_modifiers()
                         self.mqttclient.publish(self.topic, msg)
                         # log what we publish
-                        log("Published message %s" % (msg))
+                        log("Device '%s', published message %s" % (self.device.path, msg))
 
 
 if __name__ == "__main__":
@@ -203,6 +203,11 @@ if __name__ == "__main__":
 
         topic = MQTTCFG["topic"]
         devices = MQTTCFG["devices"]
+
+        available_devices = [evdev.InputDevice(path) for path in evdev.list_devices()]
+        log("Found %s available devices:" % len(available_devices))
+        for device in available_devices:
+            log("Path:'%s', Name: '%s'" % (device.path, device.name))
 
         IM = [ InputMonitor(MQ.mqttclient, device, topic) for device in devices]
 
