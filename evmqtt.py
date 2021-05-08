@@ -204,5 +204,5 @@ if __name__ == "__main__":
         for monitor in IM:
             monitor.start()
 
-    except (OSError, KeyError):
-        log("Exception: %s")
+    except (OSError, KeyError) as er:
+        log("Exception: %s" % er)
