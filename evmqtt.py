@@ -17,8 +17,7 @@ import evdev
 import paho.mqtt.client as mqtt
 
 def log(s):
-    m = "[%s] %s\n" % (datetime.datetime.now(), s)
-    sys.stderr.write(m + "\n")
+    sys.stderr.write("[%s] %s\n" % (datetime.datetime.now(), s))
     sys.stderr.flush()
 
 class Watcher:
