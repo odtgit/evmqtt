@@ -55,15 +55,14 @@ def on_connect(client, userdata, flags, rc):
     # reconnect then subscriptions will be renewed.
     client.subscribe("topic")
 
-# The callback for when a PUBLISH message is received from the server.
+def on_disconnect(client, userdata, rc):
+    log("Disconnected with result code " + str(rc))
 
+# The callback for when a PUBLISH message is received from the server.
 
 def on_message(msg):
     msgpayload = str(msg.payload)
     print(msg.topic + " " + msgpayload)
-
-# class MQTTClient:
-
 
 class MQTTClient(threading.Thread):
 
@@ -77,27 +76,10 @@ class MQTTClient(threading.Thread):
         self.mqttclient = mqtt.Client(clientid, protocol=mqtt.MQTTv31)
         self.mqttclient.username_pw_set(username, password)
         self.mqttclient.on_connect = on_connect
+        self.mqttclient.on_disconnect = on_disconnect
         self.mqttclient.on_message = on_message
         self.mqttclient.connect(serverip, port)
-        self.connected = True
-        log("MQTT connected %s:%u" % (serverip, port))
-
-    def run(self):
-        while self.connected:
-            rc = self.mqttclient.loop(10)
-            if rc == 7:
-                log("MQTT attempting reconnect")
-                self.mqttclient.reconnect()
-        try:
-            log("MQTT attempting disconnect")
-            self.disconnect()
-        except (OSError, KeyError):
-            log("Exception: %s")
-            return None
-
-    def disconnect(self):
-        log("Signalling disconnect to MQTT loop")
-        self.connected = False
+        self.mqttclient.loop_start()
 
 
 key_state = {}
