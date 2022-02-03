@@ -16,9 +16,11 @@ from pathlib import Path
 import evdev
 import paho.mqtt.client as mqtt
 
+
 def log(s):
     sys.stderr.write("[%s] %s\n" % (datetime.datetime.now(), s))
     sys.stderr.flush()
+
 
 class Watcher:
 
@@ -54,14 +56,17 @@ def on_connect(client, userdata, flags, rc):
     # reconnect then subscriptions will be renewed.
     client.subscribe("topic")
 
+
 def on_disconnect(client, userdata, rc):
     log("Disconnected with result code " + str(rc))
 
 # The callback for when a PUBLISH message is received from the server.
 
+
 def on_message(msg):
     msgpayload = str(msg.payload)
     print(msg.topic + " " + msgpayload)
+
 
 class MQTTClient(threading.Thread):
 
@@ -125,12 +130,14 @@ def is_ignore(keycode):
         return True
     return False
 
+
 def concat_multikeys(keycode):
     # Handles case on my remote where multiple keys returned, ie: mute returns KEY_MIN_INTERESTING and KEY_MUTE in a list
     ret = keycode
     if isinstance(ret, list):
         ret = "|".join(ret)
     return ret
+
 
 class InputMonitor(threading.Thread):
 
@@ -161,7 +168,8 @@ class InputMonitor(threading.Thread):
                         msg_json = json.dumps(msg)
                         self.mqttclient.publish(self.topic, msg_json)
                         # log what we publish
-                        log("Device '%s', published message %s" % (self.device.path, msg_json))
+                        log("Device '%s', published message %s" %
+                            (self.device.path, msg_json))
 
 
 if __name__ == "__main__":
@@ -189,12 +197,13 @@ if __name__ == "__main__":
         topic = MQTTCFG["topic"]
         devices = MQTTCFG["devices"]
 
-        available_devices = [evdev.InputDevice(path) for path in evdev.list_devices()]
+        available_devices = [evdev.InputDevice(
+            path) for path in evdev.list_devices()]
         log("Found %s available devices:" % len(available_devices))
         for device in available_devices:
             log("Path:'%s', Name: '%s'" % (device.path, device.name))
 
-        IM = [ InputMonitor(MQ.mqttclient, device, topic) for device in devices]
+        IM = [InputMonitor(MQ.mqttclient, device, topic) for device in devices]
 
         for monitor in IM:
             monitor.start()
