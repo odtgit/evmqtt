@@ -163,7 +163,8 @@ class InputMonitor(threading.Thread):
                 if not is_modifier(k.keycode) and not is_ignore(k.keycode):
                     if k.keystate == 1:
                         msg = {
-                            "key": concat_multikeys(k.keycode) + get_modifiers(),
+                            "key": concat_multikeys(k.keycode) +
+                            get_modifiers(),
                             "devicePath": self.device.path
                         }
                         msg_json = json.dumps(msg)
