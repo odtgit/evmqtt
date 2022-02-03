@@ -1,4 +1,4 @@
-# Very simple Linux input event to MQTT gateway
+# Linux input event to MQTT gateway
 
 This program allows you to capture linux input events via [evdev](https://python-evdev.readthedocs.io/en/latest)
 and publish them to an MQTT broker. This can for example be used to turn IR button presses to triggers in Home Assistant.
@@ -24,13 +24,14 @@ payload and /config for autodiscovery.
 
 ## Run in a docker container
 
-Very simple to build and run using docker as shown
+Very simple to build and run using docker something like this
 
 ```bash
 docker build . -t evmqtt
 docker run -d --network host --device=/dev/input/event3 --name evmqtt <image_id>
 ```
 
+Or you can also use the docker-compose.yaml example directly.
 
 ## Run as a service
 
