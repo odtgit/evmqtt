@@ -132,7 +132,8 @@ def is_ignore(keycode):
 
 
 def concat_multikeys(keycode):
-    # Handles case on my remote where multiple keys returned, ie: mute returns KEY_MIN_INTERESTING and KEY_MUTE in a list
+    # Handles case on my remote where multiple keys returned,
+    # ie: mute returns KEY_MIN_INTERESTING and KEY_MUTE in a list
     ret = keycode
     if isinstance(ret, list):
         ret = "|".join(ret)
