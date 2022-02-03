@@ -3,6 +3,7 @@
   "port":1883,
   "username":"user",
   "password":"pwd",
-  "topic":"evmqtt/remote_dev/state",
+  "name":"Event Gateway (MQTT)",
+  "topic":"homeassistant/sensor/evmqtt",
   "devices": ["/dev/input/event0", "/dev/input/event1"]
 }

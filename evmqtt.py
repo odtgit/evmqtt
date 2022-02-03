@@ -37,7 +37,7 @@ class Watcher:
         except KeyboardInterrupt:
             # I put the capital B in KeyBoardInterrupt so I can
             # tell when the Watcher gets the SIGINT
-            print('KeyBoardInterrupt')
+            log('KeyBoardInterrupt received')
             self.kill()
         sys.exit()
 
@@ -146,8 +146,16 @@ class InputMonitor(threading.Thread):
         super(InputMonitor, self).__init__()
         self.mqttclient = mqttclient
         self.device = evdev.InputDevice(device)
-        self.topic = topic
-        log("Monitoring %s and sending to topic %s" % (device, topic))
+        self.topic = topic + '/state' # state topic
+        self.config = topic + '/config' # config topic for HA autodiscovery
+        config = {
+                "name": MQTTCFG["name"],
+                "state_topic": self.topic
+                }
+        msg_config = json.dumps(config)
+        self.mqttclient.publish(self.config, msg_config)
+        log("Sending configuration for autodiscovery to %s" % (self.config))
+        log("Monitoring %s and sending to topic %s" % (device, self.topic))
 
     def run(self):
         global key_state
