@@ -151,7 +151,7 @@ class InputMonitor(threading.Thread):
         config = {
                 "name": MQTTCFG["name"],
                 "state_topic": self.topic,
-                "icon":"mdi:code-json"
+                "icon": "mdi:code-json"
                 }
         msg_config = json.dumps(config)
         self.mqttclient.publish(self.config, msg_config)
