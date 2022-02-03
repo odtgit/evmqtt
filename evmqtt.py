@@ -146,11 +146,12 @@ class InputMonitor(threading.Thread):
         super(InputMonitor, self).__init__()
         self.mqttclient = mqttclient
         self.device = evdev.InputDevice(device)
-        self.topic = topic + '/state' # state topic
-        self.config = topic + '/config' # config topic for HA autodiscovery
+        self.topic = topic + '/state'  # state topic
+        self.config = topic + '/config'  # config topic for HA autodiscovery
         config = {
                 "name": MQTTCFG["name"],
-                "state_topic": self.topic
+                "state_topic": self.topic,
+                "icon":"mdi:code-json"
                 }
         msg_config = json.dumps(config)
         self.mqttclient.publish(self.config, msg_config)
