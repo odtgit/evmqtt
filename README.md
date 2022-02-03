@@ -48,5 +48,5 @@ MQTT autodiscovery should take care of adding a sensor to HA. By default this is
 You can still create automation based on MQTT messages directly. I've found this works best with toggle service.
 Or you can create a flow like this in Node-Red
 
-![](nodered.pngg?raw=true)
+![](nodered.png?raw=true)
 
