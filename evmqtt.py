@@ -144,7 +144,7 @@ class InputMonitor(threading.Thread):
     def run(self):
         global key_state
 
-        # Grab the input device to avoid keypresses also going to th
+        # Grab the input device to avoid keypresses also going to the
         # Linux console (and attempting to login)
         self.device.grab()
 
