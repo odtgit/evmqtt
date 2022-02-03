@@ -1,14 +1,15 @@
 # Very simple Linux input event to MQTT gateway
 
 This program allows you to capture linux input events via [evdev](https://python-evdev.readthedocs.io/en/latest)
-and publish them to an MQTT broker. This can for example be used to turn IR button presses to triggers in Home Assistant
-if you are already using ir-keytable.
+and publish them to an MQTT broker. This can for example be used to turn IR button presses to triggers in Home Assistant.
 
 Based on the original [gist](https://gist.github.com/jamesbulpin/b940e7d81e2e65158f12e59b4d6a0c3c) by James Bulpin.
 
+As of the latest merge the payload will be sent as JSON with 2 attributes, key and devicePath of the generator.
+
 ## Installation as a service
 
-Get the repo, install python3-pip, install prerequisites with
+Get the repo, install python3-pip, install prerequisites with:
 
 ```bash
 git clone https://github.com/odtgit/evmqtt
@@ -18,34 +19,15 @@ pip3 install paho-mqtt evdev
 
 ## Configuration
 
-Broker config goes in config.json as shown below 
-
-```json
-{
-  "serverip":"127.0.0.1",
-  "port":1883,
-  "username":"user",
-  "password":"pwd"
-}
-```
-
-Modify these lines at the bottom of evmqtt.py to match your device and topic and add more instances if needed
-
-```python
-        IM0 = InputMonitor(
-            MQ.mqttclient,
-            "/dev/input/event3",
-            "homeassistant/sensor/loungeremote/state"
-        )
-
-```
+Check out config.json and modify for your requirements. The topic will be expanded automatically to send to /state for
+payload and /config for autodiscovery.
 
 ## Run in a docker container
 
-First do the configuration changes above and then build/run
+Very simple to build and run using docker as shown
 
 ```bash
-docker build .
+docker build . -t evmqtt
 docker run -d --network host --device=/dev/input/event3 --name evmqtt <image_id>
 ```
 
@@ -62,28 +44,7 @@ sudo systemctl start evmqtt
 
 ## Integration with Home Assistant
 
-Example config for HA configuration.yaml to get a sensor
+MQTT autodiscovery should take care of adding a sensor to HA. By default this is called sensor.event_gateway_mqtt
+You can still create automation based on MQTT messages directly. I've found this works best with toggle service.
+Or you can create a flow like this in Node-Red
 
-```yaml
-sensor:
-  - platform: mqtt
-    name: loungeremote
-    state_topic: "homeassistant/sensor/loungeremote/state"
-```
-
-Example automation based on MQTT Event (quickest, and registers each message if you press same key)
-I've found this works best with toggle
-
-```yaml
-- id: loungeremote MQTT KEY_1
-  alias: loungeremote MQTT KEY_1
-  trigger:
-  - payload: KEY_1
-    platform: mqtt
-    topic: homeassistant/sensor/loungeremote/state
-  condition: []
-  action:
-  - data:
-      entity_id: switch.lounge_tv
-    service: switch.toggle
-```

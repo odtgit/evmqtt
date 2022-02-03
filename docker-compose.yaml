@@ -1,0 +1,17 @@
+version: "3.7"
+
+services:
+  evmqtt:
+    hostname: evmqtt
+    container_name: evmqtt
+    image: odtdock/evmqtt:latest
+    restart: always
+    volumes:
+      - ./config.json:/app/config.json
+      - /etc/localtime:/etc/localtime:ro
+    environment:
+      - "TZ=Europe/Stockholm"
+    devices:
+      - /dev/input/event4
+    network_mode: host
+
