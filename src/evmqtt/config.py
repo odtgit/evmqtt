@@ -23,7 +23,11 @@ class Config:
         password: MQTT authentication password.
         name: Display name for the gateway in Home Assistant.
         topic: Base MQTT topic for publishing events.
-        devices: List of input device paths to monitor.
+        devices: List of input device paths to monitor (used when auto_discover=False).
+        auto_discover: If True, automatically discover all input devices.
+        enabled_devices: List of device paths that are enabled when auto-discovering.
+            If empty and auto_discover is True, all devices start enabled.
+        filter_keys_only: When auto-discovering, only include devices with key capabilities.
     """
 
     serverip: str
@@ -33,6 +37,9 @@ class Config:
     name: str
     topic: str
     devices: list[str] = field(default_factory=list)
+    auto_discover: bool = False
+    enabled_devices: list[str] = field(default_factory=list)
+    filter_keys_only: bool = True
 
     def __post_init__(self) -> None:
         """Validate configuration after initialization."""
@@ -42,8 +49,11 @@ class Config:
             raise ValueError(f"port must be between 1 and 65535, got {self.port}")
         if not self.topic:
             raise ValueError("topic cannot be empty")
-        if not self.devices:
-            raise ValueError("at least one device must be specified")
+        # When auto_discover is False, require at least one device
+        if not self.auto_discover and not self.devices:
+            raise ValueError(
+                "at least one device must be specified when auto_discover is disabled"
+            )
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Config:
@@ -66,7 +76,10 @@ class Config:
             password=data["password"],
             name=data["name"],
             topic=data["topic"],
-            devices=data["devices"],
+            devices=data.get("devices", []),
+            auto_discover=data.get("auto_discover", False),
+            enabled_devices=data.get("enabled_devices", []),
+            filter_keys_only=data.get("filter_keys_only", True),
         )
 
     @classmethod
@@ -90,6 +103,9 @@ class Config:
             name=options.get("name", "evmqtt"),
             topic=options.get("topic", "homeassistant/sensor/evmqtt"),
             devices=options.get("devices", []),
+            auto_discover=options.get("auto_discover", False),
+            enabled_devices=options.get("enabled_devices", []),
+            filter_keys_only=options.get("filter_keys_only", True),
         )
 
     @classmethod

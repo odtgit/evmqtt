@@ -32,6 +32,28 @@ class TestConfig:
         assert config.name == "Test Gateway"
         assert config.topic == "homeassistant/sensor/test"
         assert config.devices == ["/dev/input/event0"]
+        assert config.auto_discover is False  # Default
+
+    def test_from_dict_with_auto_discover(self) -> None:
+        """Test creating Config with auto_discover enabled."""
+        data = {
+            "serverip": "192.168.1.100",
+            "port": 1883,
+            "username": "user",
+            "password": "pass",
+            "name": "Test Gateway",
+            "topic": "homeassistant/sensor/test",
+            "auto_discover": True,
+            "filter_keys_only": True,
+            "devices": [],
+            "enabled_devices": ["/dev/input/event0"],
+        }
+        config = Config.from_dict(data)
+
+        assert config.auto_discover is True
+        assert config.filter_keys_only is True
+        assert config.devices == []
+        assert config.enabled_devices == ["/dev/input/event0"]
 
     def test_from_dict_missing_field(self) -> None:
         """Test that missing required fields raise KeyError."""
@@ -93,8 +115,8 @@ class TestConfig:
                 devices=["/dev/input/event0"],
             )
 
-    def test_validation_empty_devices(self) -> None:
-        """Test that empty devices list raises ValueError."""
+    def test_validation_empty_devices_without_auto_discover(self) -> None:
+        """Test that empty devices list raises ValueError when auto_discover is False."""
         with pytest.raises(ValueError, match="at least one device"):
             Config(
                 serverip="localhost",
@@ -104,7 +126,23 @@ class TestConfig:
                 name="Test",
                 topic="test/topic",
                 devices=[],
+                auto_discover=False,
             )
+
+    def test_validation_empty_devices_with_auto_discover(self) -> None:
+        """Test that empty devices list is OK when auto_discover is True."""
+        config = Config(
+            serverip="localhost",
+            port=1883,
+            username="user",
+            password="pass",
+            name="Test",
+            topic="test/topic",
+            devices=[],
+            auto_discover=True,
+        )
+        assert config.devices == []
+        assert config.auto_discover is True
 
     def test_load_from_file(self) -> None:
         """Test loading configuration from a file."""
@@ -158,6 +196,26 @@ class TestConfig:
         assert config.topic == "homeassistant/sensor/evmqtt"
         assert config.devices == ["/dev/input/event0", "/dev/input/event1"]
 
+    def test_from_ha_options_with_auto_discover(self) -> None:
+        """Test creating Config from HA options with auto_discover."""
+        options = {
+            "mqtt_host": "homeassistant.local",
+            "mqtt_port": 1883,
+            "mqtt_username": "ha_user",
+            "mqtt_password": "ha_pass",
+            "name": "Input Events",
+            "topic": "homeassistant/sensor/evmqtt",
+            "auto_discover": True,
+            "filter_keys_only": True,
+            "enabled_devices": ["/dev/input/event0"],
+            "log_level": "info",
+        }
+        config = Config.from_ha_options(options)
+
+        assert config.auto_discover is True
+        assert config.filter_keys_only is True
+        assert config.enabled_devices == ["/dev/input/event0"]
+
     def test_from_ha_options_fallback_to_legacy_keys(self) -> None:
         """Test that HA options fallback to legacy config keys."""
         options = {
@@ -190,6 +248,8 @@ class TestConfig:
         assert config.password == ""  # default
         assert config.name == "evmqtt"  # default
         assert config.topic == "homeassistant/sensor/evmqtt"  # default
+        assert config.auto_discover is False  # default
+        assert config.filter_keys_only is True  # default
 
     def test_load_from_env_variable(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test loading configuration from EVMQTT_CONFIG environment variable."""
@@ -259,3 +319,19 @@ class TestConfig:
             ],
         )
         assert len(config.devices) == 3
+
+    def test_enabled_devices_list(self) -> None:
+        """Test configuration with enabled_devices list."""
+        config = Config(
+            serverip="localhost",
+            port=1883,
+            username="",
+            password="",
+            name="Auto-discover",
+            topic="test/topic",
+            devices=[],
+            auto_discover=True,
+            enabled_devices=["/dev/input/event0", "/dev/input/event2"],
+        )
+        assert config.enabled_devices == ["/dev/input/event0", "/dev/input/event2"]
+        assert config.auto_discover is True

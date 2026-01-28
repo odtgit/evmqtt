@@ -1,6 +1,6 @@
 name: "evmqtt"
-description: "Linux input event to MQTT gateway for Home Assistant"
-version: "1.0.0"
+description: "Linux input event to MQTT gateway for Home Assistant with auto-discovery"
+version: "1.1.0"
 slug: "evmqtt"
 url: "https://github.com/odtgit/evmqtt"
 arch:
@@ -28,8 +28,10 @@ options:
   mqtt_password: ""
   name: "Input Events"
   topic: "homeassistant/sensor/evmqtt"
-  devices:
-    - "/dev/input/event0"
+  auto_discover: true
+  filter_keys_only: true
+  devices: []
+  enabled_devices: []
   log_level: "info"
 schema:
   mqtt_host: str
@@ -38,8 +40,12 @@ schema:
   mqtt_password: password?
   name: str
   topic: str
+  auto_discover: bool
+  filter_keys_only: bool
   devices:
-    - str
+    - str?
+  enabled_devices:
+    - str?
   log_level: list(debug|info|warning|error)
 panel_icon: "mdi:remote"
 panel_title: "evmqtt"

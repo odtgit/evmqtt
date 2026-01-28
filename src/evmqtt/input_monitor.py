@@ -5,13 +5,14 @@ from __future__ import annotations
 import json
 import logging
 import threading
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable
 
 import evdev
 
 from evmqtt.key_handler import KeyHandler
 
 if TYPE_CHECKING:
+    from evmqtt.device_discovery import DiscoveredDevice
     from evmqtt.mqtt_client import MQTTClientWrapper
 
 logger = logging.getLogger(__name__)
@@ -23,10 +24,18 @@ class InputMonitor(threading.Thread):
     This class runs as a daemon thread, continuously reading events
     from an input device and publishing key presses to an MQTT topic.
 
+    Supports Home Assistant autodiscovery for both the sensor (key events)
+    and a switch entity that allows users to enable/disable monitoring
+    from the Home Assistant UI.
+
     Attributes:
         device: The evdev InputDevice being monitored.
         state_topic: MQTT topic for publishing key events.
-        config_topic: MQTT topic for Home Assistant autodiscovery.
+        config_topic: MQTT topic for sensor Home Assistant autodiscovery.
+        switch_config_topic: MQTT topic for switch Home Assistant autodiscovery.
+        switch_state_topic: MQTT topic for switch state.
+        switch_command_topic: MQTT topic for switch commands.
+        enabled: Whether this monitor is currently enabled.
     """
 
     def __init__(
@@ -36,6 +45,10 @@ class InputMonitor(threading.Thread):
         base_topic: str,
         gateway_name: str,
         key_handler: KeyHandler | None = None,
+        device_slug: str | None = None,
+        unique_id: str | None = None,
+        initially_enabled: bool = True,
+        on_enabled_change: Callable[[str, bool], None] | None = None,
     ) -> None:
         """Initialize the input monitor.
 
@@ -45,37 +58,155 @@ class InputMonitor(threading.Thread):
             base_topic: Base MQTT topic for this gateway.
             gateway_name: Display name for Home Assistant autodiscovery.
             key_handler: Optional KeyHandler instance (shared across monitors).
+            device_slug: Optional slug for human-readable topic names.
+            unique_id: Optional unique ID for this device.
+            initially_enabled: Whether to start with monitoring enabled.
+            on_enabled_change: Optional callback when enabled state changes.
         """
         super().__init__(daemon=True)
         self._mqtt_client = mqtt_client
         self.device = evdev.InputDevice(device_path)
-        self.state_topic = f"{base_topic}/state"
-        self.config_topic = f"{base_topic}/config"
         self._gateway_name = gateway_name
         self._key_handler = key_handler or KeyHandler()
         self._stop_event = threading.Event()
+        self._on_enabled_change = on_enabled_change
 
-        # Publish autodiscovery configuration
-        self._publish_autodiscovery()
+        # Use slug-based topics if provided, otherwise use path-based
+        if device_slug:
+            topic_suffix = device_slug
+            self._unique_id = unique_id or f"evmqtt_{device_slug}"
+        else:
+            # Fallback to old path-based naming
+            topic_suffix = device_path.replace("/", "_")
+            self._unique_id = f"evmqtt_{topic_suffix}"
+
+        # Build topic paths with human-readable device names
+        device_base_topic = f"{base_topic}/{topic_suffix}"
+        self.state_topic = f"{device_base_topic}/state"
+        self.config_topic = f"{device_base_topic}/config"
+
+        # Switch topics for enable/disable control
+        self.switch_config_topic = f"homeassistant/switch/{self._unique_id}/config"
+        self.switch_state_topic = f"{device_base_topic}/switch/state"
+        self.switch_command_topic = f"{device_base_topic}/switch/set"
+
+        # Enabled state - can be controlled via MQTT switch
+        self._enabled = initially_enabled
+        self._enabled_lock = threading.Lock()
 
         logger.info(
-            "Monitoring '%s' (%s) -> topic '%s'",
+            "Monitoring '%s' (%s) -> topic '%s' [%s]",
             self.device.name,
             device_path,
             self.state_topic,
+            "enabled" if self._enabled else "disabled",
         )
 
-    def _publish_autodiscovery(self) -> None:
-        """Publish Home Assistant MQTT autodiscovery configuration."""
+    @property
+    def enabled(self) -> bool:
+        """Check if monitoring is enabled."""
+        with self._enabled_lock:
+            return self._enabled
+
+    @enabled.setter
+    def enabled(self, value: bool) -> None:
+        """Set the enabled state."""
+        with self._enabled_lock:
+            if self._enabled != value:
+                self._enabled = value
+                logger.info(
+                    "Monitor for '%s' %s",
+                    self.device.name,
+                    "enabled" if value else "disabled",
+                )
+                # Publish state change
+                self._publish_switch_state()
+                # Notify callback
+                if self._on_enabled_change:
+                    self._on_enabled_change(self.device.path, value)
+
+    def setup_autodiscovery(self) -> None:
+        """Publish Home Assistant autodiscovery configurations.
+
+        This publishes both the sensor config (for key events) and
+        the switch config (for enable/disable control).
+        """
+        self._publish_sensor_autodiscovery()
+        self._publish_switch_autodiscovery()
+        self._publish_switch_state()
+
+    def _publish_sensor_autodiscovery(self) -> None:
+        """Publish Home Assistant MQTT autodiscovery configuration for sensor."""
+        # Clean up the device name for display
+        display_name = f"{self._gateway_name} - {self.device.name}"
+
         config = {
-            "name": self._gateway_name,
+            "name": display_name,
             "state_topic": self.state_topic,
-            "icon": "mdi:code-json",
-            "unique_id": f"evmqtt_{self.device.path.replace('/', '_')}",
+            "icon": "mdi:keyboard",
+            "unique_id": f"{self._unique_id}_sensor",
+            "value_template": "{{ value_json.key }}",
+            "json_attributes_topic": self.state_topic,
+            "json_attributes_template": "{{ value_json | tojson }}",
+            "device": {
+                "identifiers": [self._unique_id],
+                "name": self.device.name,
+                "manufacturer": "evmqtt",
+                "model": "Input Device",
+                "sw_version": "1.0.0",
+            },
         }
         config_json = json.dumps(config)
         self._mqtt_client.publish(self.config_topic, config_json, retain=True)
-        logger.info("Published autodiscovery config to '%s'", self.config_topic)
+        logger.debug("Published sensor autodiscovery config to '%s'", self.config_topic)
+
+    def _publish_switch_autodiscovery(self) -> None:
+        """Publish Home Assistant MQTT autodiscovery configuration for switch."""
+        display_name = f"{self.device.name} Enable"
+
+        config = {
+            "name": display_name,
+            "state_topic": self.switch_state_topic,
+            "command_topic": self.switch_command_topic,
+            "icon": "mdi:toggle-switch",
+            "unique_id": f"{self._unique_id}_switch",
+            "payload_on": "ON",
+            "payload_off": "OFF",
+            "state_on": "ON",
+            "state_off": "OFF",
+            "device": {
+                "identifiers": [self._unique_id],
+                "name": self.device.name,
+                "manufacturer": "evmqtt",
+                "model": "Input Device",
+                "sw_version": "1.0.0",
+            },
+        }
+        config_json = json.dumps(config)
+        self._mqtt_client.publish(self.switch_config_topic, config_json, retain=True)
+        logger.debug(
+            "Published switch autodiscovery config to '%s'", self.switch_config_topic
+        )
+
+    def _publish_switch_state(self) -> None:
+        """Publish the current switch state to MQTT."""
+        state = "ON" if self._enabled else "OFF"
+        self._mqtt_client.publish(self.switch_state_topic, state, retain=True)
+        logger.debug("Published switch state '%s' to '%s'", state, self.switch_state_topic)
+
+    def handle_switch_command(self, payload: str) -> None:
+        """Handle a switch command from MQTT.
+
+        Args:
+            payload: The command payload ("ON" or "OFF").
+        """
+        payload_upper = payload.upper().strip()
+        if payload_upper == "ON":
+            self.enabled = True
+        elif payload_upper == "OFF":
+            self.enabled = False
+        else:
+            logger.warning("Invalid switch command: %s", payload)
 
     def run(self) -> None:
         """Main monitoring loop.
@@ -99,7 +230,9 @@ class InputMonitor(threading.Thread):
                 if event.type != evdev.ecodes.EV_KEY:
                     continue
 
-                self._handle_key_event(event)
+                # Only handle events if enabled
+                if self.enabled:
+                    self._handle_key_event(event)
 
         except OSError as e:
             if not self._stop_event.is_set():
@@ -146,6 +279,15 @@ class InputMonitor(threading.Thread):
         """Signal the monitor to stop."""
         self._stop_event.set()
         logger.info("Stopping monitor for '%s'", self.device.path)
+
+    def cleanup_autodiscovery(self) -> None:
+        """Remove autodiscovery configurations from MQTT.
+
+        This publishes empty payloads to remove the entities from HA.
+        """
+        self._mqtt_client.publish(self.config_topic, "", retain=True)
+        self._mqtt_client.publish(self.switch_config_topic, "", retain=True)
+        logger.debug("Removed autodiscovery configs for '%s'", self.device.name)
 
 
 def list_available_devices() -> list[dict[str, str]]:

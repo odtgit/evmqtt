@@ -5,5 +5,8 @@
   "password":"pwd",
   "name":"Event Gateway (MQTT)",
   "topic":"homeassistant/sensor/evmqtt",
-  "devices": ["/dev/input/event0", "/dev/input/event1"]
+  "auto_discover": true,
+  "filter_keys_only": true,
+  "devices": [],
+  "enabled_devices": []
 }
