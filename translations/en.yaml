@@ -1,0 +1,25 @@
+configuration:
+  mqtt_host:
+    name: MQTT Host
+    description: The hostname or IP address of your MQTT broker. Use "homeassistant.local" for the built-in Mosquitto broker.
+  mqtt_port:
+    name: MQTT Port
+    description: The port number of your MQTT broker (default is 1883).
+  mqtt_username:
+    name: MQTT Username
+    description: Username for MQTT authentication. Leave empty if not required.
+  mqtt_password:
+    name: MQTT Password
+    description: Password for MQTT authentication. Leave empty if not required.
+  name:
+    name: Sensor Name
+    description: Display name for the sensor in Home Assistant.
+  topic:
+    name: MQTT Topic
+    description: Base MQTT topic for publishing input events. Events will be published to {topic}/state.
+  devices:
+    name: Input Devices
+    description: List of Linux input device paths to monitor (e.g., /dev/input/event0). Use "ls -la /dev/input/" to find available devices.
+  log_level:
+    name: Log Level
+    description: Logging verbosity level for troubleshooting.

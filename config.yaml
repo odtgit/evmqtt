@@ -1,0 +1,45 @@
+name: "evmqtt"
+description: "Linux input event to MQTT gateway for Home Assistant"
+version: "1.0.0"
+slug: "evmqtt"
+url: "https://github.com/odtgit/evmqtt"
+arch:
+  - amd64
+  - aarch64
+  - armv7
+  - armhf
+  - i386
+startup: "system"
+boot: "auto"
+init: false
+homeassistant_api: false
+hassio_api: false
+host_network: true
+privileged:
+  - SYS_RAWIO
+full_access: true
+devices: true
+map:
+  - config:rw
+options:
+  mqtt_host: "homeassistant.local"
+  mqtt_port: 1883
+  mqtt_username: ""
+  mqtt_password: ""
+  name: "Input Events"
+  topic: "homeassistant/sensor/evmqtt"
+  devices:
+    - "/dev/input/event0"
+  log_level: "info"
+schema:
+  mqtt_host: str
+  mqtt_port: port
+  mqtt_username: str?
+  mqtt_password: password?
+  name: str
+  topic: str
+  devices:
+    - str
+  log_level: list(debug|info|warning|error)
+panel_icon: "mdi:remote"
+panel_title: "evmqtt"
