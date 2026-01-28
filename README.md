@@ -9,6 +9,9 @@ Based on the original [gist](https://gist.github.com/jamesbulpin/b940e7d81e2e651
 
 ## Features
 
+- **Auto-discovery** of all input devices - no manual configuration needed
+- **Enable/disable switches** in Home Assistant UI for each device
+- Human-readable device names in MQTT topics
 - Monitors Linux input devices (`/dev/input/eventX`)
 - Publishes key events as JSON to MQTT
 - Home Assistant MQTT autodiscovery support
@@ -113,13 +116,30 @@ When running as a Home Assistant add-on, configure via the Supervisor UI:
 | **MQTT Password** | Authentication password (optional) |
 | **Sensor Name** | Display name in Home Assistant |
 | **MQTT Topic** | Base topic for events (e.g., `homeassistant/sensor/evmqtt`) |
-| **Input Devices** | List of device paths to monitor |
+| **Auto Discover** | Enable automatic discovery of all input devices (default: `true`) |
+| **Filter Keys Only** | Only include devices with key capabilities (default: `true`) |
+| **Input Devices** | Manual list of device paths (when auto-discover is disabled) |
+| **Enabled Devices** | List of device paths to enable by default (when auto-discover is enabled) |
 | **Log Level** | Logging verbosity: `debug`, `info`, `warning`, `error` |
+
+### Auto-Discovery Mode (Recommended)
+
+With auto-discovery enabled (the default), evmqtt automatically:
+
+1. Discovers all input devices on your system
+2. Creates human-readable MQTT topics based on device names
+3. Creates both a **sensor** and an **enable/disable switch** for each device
+4. Allows you to enable or disable individual devices from the Home Assistant UI
+
+Example: A device named "gpio_ir_recv" will get:
+- Sensor topic: `homeassistant/sensor/evmqtt/gpio-ir-recv/state`
+- Switch topic: `homeassistant/sensor/evmqtt/gpio-ir-recv/switch/state`
 
 ### JSON Configuration
 
 For standalone deployment, create a `config.json` file:
 
+**Auto-discovery mode (recommended):**
 ```json
 {
   "serverip": "192.168.1.100",
@@ -128,6 +148,22 @@ For standalone deployment, create a `config.json` file:
   "password": "mqtt_password",
   "name": "Input Events",
   "topic": "homeassistant/sensor/evmqtt",
+  "auto_discover": true,
+  "filter_keys_only": true,
+  "enabled_devices": []
+}
+```
+
+**Manual mode:**
+```json
+{
+  "serverip": "192.168.1.100",
+  "port": 1883,
+  "username": "mqtt_user",
+  "password": "mqtt_password",
+  "name": "Input Events",
+  "topic": "homeassistant/sensor/evmqtt",
+  "auto_discover": false,
   "devices": [
     "/dev/input/event0",
     "/dev/input/event3"
@@ -161,7 +197,7 @@ Look for your keyboard, remote, or other input device and note the `eventX` numb
 ### Command Line Options
 
 ```
-evmqtt [-h] [-c CONFIG] [-v] [-d] [--list-devices]
+evmqtt [-h] [-c CONFIG] [-v] [-d] [--list-devices] [--auto-discover]
 
 Options:
   -h, --help            Show help message
@@ -169,17 +205,39 @@ Options:
   -v, --verbose         Enable verbose (INFO) logging
   -d, --debug           Enable debug logging
   --list-devices        List available input devices and exit
+  --auto-discover       Enable auto-discovery (overrides config file)
+```
+
+### MQTT Topics
+
+With auto-discovery, topics are organized by device:
+
+```
+homeassistant/sensor/evmqtt/
+├── usb-keyboard/
+│   ├── state          # Key events
+│   ├── config         # HA sensor autodiscovery
+│   └── switch/
+│       ├── state      # Enable/disable state (ON/OFF)
+│       └── set        # Command topic for toggling
+├── gpio-ir-recv/
+│   ├── state
+│   ├── config
+│   └── switch/
+│       ├── state
+│       └── set
+└── ...
 ```
 
 ### MQTT Message Format
 
-Events are published as JSON to `{topic}/state`:
+Events are published as JSON to `{topic}/{device-slug}/state`:
 
 ```json
 {
   "key": "KEY_VOLUMEUP",
   "devicePath": "/dev/input/event3",
-  "deviceName": "IR Remote"
+  "deviceName": "gpio_ir_recv"
 }
 ```
 
@@ -195,7 +253,16 @@ With modifier keys held:
 
 ### Home Assistant Autodiscovery
 
-The add-on automatically publishes MQTT autodiscovery configuration to `{topic}/config`, creating a sensor entity in Home Assistant.
+For each device, evmqtt creates:
+
+1. **Sensor Entity**: Shows the last key pressed
+   - Entity ID: `sensor.input_events_device_name`
+   - Shows key code and device info as attributes
+
+2. **Switch Entity**: Enable/disable monitoring for this device
+   - Entity ID: `switch.device_name_enable`
+   - Turn OFF to stop receiving events from this device
+   - State is retained, so it persists across restarts
 
 ## Integration with Home Assistant
 
@@ -206,13 +273,23 @@ automation:
   - alias: "Volume Up Button"
     trigger:
       - platform: state
-        entity_id: sensor.input_events
+        entity_id: sensor.input_events_gpio_ir_recv
         to: "KEY_VOLUMEUP"
     action:
       - service: media_player.volume_up
         target:
           entity_id: media_player.living_room
 ```
+
+### Filtering Devices in the UI
+
+When auto-discovery is enabled, you can control which devices are active directly from Home Assistant:
+
+1. Go to **Settings** → **Devices & Services** → **MQTT**
+2. Find the device you want to disable
+3. Toggle the **Enable** switch OFF
+
+The device will stop publishing events until re-enabled.
 
 ### Node-RED Integration
 
@@ -239,18 +316,19 @@ pytest tests/ -v --cov=evmqtt --cov-report=html
 
 ```
 evmqtt/
-├── src/evmqtt/          # Main package
+├── src/evmqtt/             # Main package
 │   ├── __init__.py
-│   ├── __main__.py      # CLI entry point
-│   ├── config.py        # Configuration handling
-│   ├── mqtt_client.py   # MQTT client wrapper
-│   ├── input_monitor.py # Input device monitoring
-│   └── key_handler.py   # Key event processing
-├── tests/               # Test suite
-├── config.yaml          # HA add-on manifest
-├── Dockerfile           # Container build
-├── pyproject.toml       # Python packaging
-└── run.sh              # Add-on entrypoint
+│   ├── __main__.py         # CLI entry point
+│   ├── config.py           # Configuration handling
+│   ├── mqtt_client.py      # MQTT client wrapper
+│   ├── input_monitor.py    # Input device monitoring
+│   ├── key_handler.py      # Key event processing
+│   └── device_discovery.py # Auto-discovery logic
+├── tests/                  # Test suite
+├── config.yaml             # HA add-on manifest
+├── Dockerfile              # Container build
+├── pyproject.toml          # Python packaging
+└── run.sh                  # Add-on entrypoint
 ```
 
 ### Type Checking
@@ -297,6 +375,12 @@ Or run with sudo (not recommended for production).
 1. Verify broker address and port
 2. Check username/password
 3. Ensure the broker is running: `mosquitto_sub -h localhost -t '#'`
+
+### Devices Not Appearing in Home Assistant
+
+1. Check MQTT autodiscovery is enabled in Home Assistant
+2. Verify the MQTT topic matches HA's autodiscovery prefix (default: `homeassistant`)
+3. Look in **Settings** → **Devices & Services** → **MQTT** → **Devices**
 
 ## License
 
