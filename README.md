@@ -14,7 +14,6 @@ Based on the original [gist](https://gist.github.com/jamesbulpin/b940e7d81e2e651
 - Home Assistant MQTT autodiscovery support
 - Tracks modifier keys (Shift, Ctrl, Alt, etc.)
 - **Home Assistant Add-on** with GUI configuration
-- **HACS** compatible for easy installation
 - Docker support for standalone deployment
 
 ## Installation
@@ -23,23 +22,28 @@ Based on the original [gist](https://gist.github.com/jamesbulpin/b940e7d81e2e651
 
 The easiest way to use evmqtt with Home Assistant is as a Supervisor add-on.
 
-#### Via HACS
+> **Note:** This is an add-on, not a HACS integration. Add-ons require direct hardware access and run as separate Docker containers, which HACS does not support. Install via the Supervisor Add-on Store instead.
 
-1. Open HACS in Home Assistant
-2. Go to **Integrations** > **...** (menu) > **Custom repositories**
-3. Add `https://github.com/odtgit/evmqtt` as an **Add-on** repository
-4. Find "evmqtt" in the add-on store and click **Install**
-5. Configure via the add-on's **Configuration** tab
-6. Start the add-on
+#### Add Repository to Supervisor
 
-#### Manual Add-on Installation
+1. Go to **Settings** → **Add-ons** → **Add-on Store**
+2. Click **⋮** (three dots menu) → **Repositories**
+3. Add this repository URL: `https://github.com/odtgit/evmqtt`
+4. Click **Add** → **Close**
+5. Find "evmqtt" in the add-on store and click **Install**
+6. Configure via the add-on's **Configuration** tab
+7. Start the add-on
+
+#### Local Add-on Installation
+
+Alternatively, clone directly to your local add-ons folder:
 
 ```bash
 cd /addons
 git clone https://github.com/odtgit/evmqtt
 ```
 
-Then restart Home Assistant, go to **Settings** > **Add-ons** > **evmqtt** and configure.
+Then restart Home Assistant, go to **Settings** → **Add-ons** → **evmqtt** and configure.
 
 ### Option 2: Docker Container
 
