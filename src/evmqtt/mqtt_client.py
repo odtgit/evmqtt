@@ -51,20 +51,12 @@ class MQTTClientWrapper:
             client_id,
         )
 
-        # Use callback_api_version for paho-mqtt 2.0+ compatibility
-        try:
-            # paho-mqtt 2.0+
-            self.client = mqtt.Client(
-                callback_api_version=mqtt.CallbackAPIVersion.VERSION2,
-                client_id=client_id,
-                protocol=mqtt.MQTTv311,
-            )
-        except (AttributeError, TypeError):
-            # paho-mqtt 1.x fallback
-            self.client = mqtt.Client(
-                client_id=client_id,
-                protocol=mqtt.MQTTv311,
-            )
+        # paho-mqtt 2.0+ API
+        self.client = mqtt.Client(
+            callback_api_version=mqtt.CallbackAPIVersion.VERSION2,
+            client_id=client_id,
+            protocol=mqtt.MQTTv311,
+        )
 
         self.client.username_pw_set(config.username, config.password)
 
@@ -86,8 +78,8 @@ class MQTTClientWrapper:
         self,
         client: mqtt.Client,
         userdata: Any,
-        flags: dict[str, Any] | mqtt.ConnectFlags,
-        reason_code: int | mqtt.ReasonCode,
+        flags: mqtt.ConnectFlags,
+        reason_code: mqtt.ReasonCode,
         properties: mqtt.Properties | None = None,
     ) -> None:
         """Handle MQTT connection events.
@@ -96,16 +88,14 @@ class MQTTClientWrapper:
             client: The MQTT client instance.
             userdata: User data (not used).
             flags: Connection flags.
-            reason_code: Connection result code (0 = success).
+            reason_code: Connection result code.
             properties: MQTT v5 properties (optional).
         """
-        # Handle both paho-mqtt 1.x (int) and 2.x (ReasonCode) return values
-        rc = reason_code if isinstance(reason_code, int) else reason_code.value
-        if rc == 0:
+        if reason_code.is_failure:
+            logger.error("Failed to connect to MQTT broker: %s", reason_code)
+        else:
             logger.info("Connected to MQTT broker successfully")
             self._connected.set()
-        else:
-            logger.error("Failed to connect to MQTT broker, code: %s", reason_code)
 
         if self._user_on_connect:
             self._user_on_connect(client, userdata, flags, reason_code, properties)
@@ -114,8 +104,8 @@ class MQTTClientWrapper:
         self,
         client: mqtt.Client,
         userdata: Any,
-        flags: dict[str, Any] | mqtt.DisconnectFlags | None = None,
-        reason_code: int | mqtt.ReasonCode | None = None,
+        flags: mqtt.DisconnectFlags,
+        reason_code: mqtt.ReasonCode,
         properties: mqtt.Properties | None = None,
     ) -> None:
         """Handle MQTT disconnection events.
@@ -123,12 +113,12 @@ class MQTTClientWrapper:
         Args:
             client: The MQTT client instance.
             userdata: User data (not used).
-            flags: Disconnection flags (paho-mqtt 2.x).
+            flags: Disconnection flags.
             reason_code: Disconnection reason code.
             properties: MQTT v5 properties (optional).
         """
         self._connected.clear()
-        logger.warning("Disconnected from MQTT broker, code: %s", reason_code)
+        logger.warning("Disconnected from MQTT broker: %s", reason_code)
 
         if self._user_on_disconnect:
             self._user_on_disconnect(client, userdata, flags, reason_code, properties)
