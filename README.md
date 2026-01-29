@@ -51,8 +51,8 @@ Then restart Home Assistant, go to **Settings** → **Add-ons** → **evmqtt** a
 ### Option 2: Docker Container
 
 ```bash
-# Build the image
-docker build -t evmqtt .
+# Build the image (use standard Python base for standalone deployment)
+docker build --build-arg BUILD_FROM=python:3.11-alpine -t evmqtt .
 
 # Run with access to input devices
 docker run -d \
