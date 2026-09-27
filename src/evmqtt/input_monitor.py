@@ -319,12 +319,14 @@ class InputMonitor(threading.Thread):
 
         # Build and publish the message
         formatted_key = self._key_handler.format_keycode(keycode)
+        formatted_state = self._key_handler.format_keystate(keystate)
         modifier_suffix = self._key_handler.get_modifier_suffix()
 
         message = {
             "key": formatted_key + modifier_suffix,
             "devicePath": self.device.path,
             "deviceName": self.device.name,
+            "state": formatted_state,
         }
         message_json = json.dumps(message)
 

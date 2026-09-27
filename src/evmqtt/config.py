@@ -38,6 +38,7 @@ class Config:
     password: str
     name: str
     topic: str
+    keystates: set[int] | None = None
     devices: list[str] = field(default_factory=list)
     auto_discover: bool = False
     enabled_devices: list[str] = field(default_factory=list)
@@ -88,6 +89,7 @@ class Config:
             auto_discover=data.get("auto_discover", False),
             enabled_devices=data.get("enabled_devices", []),
             filter_keys_only=data.get("filter_keys_only", True),
+            keystates=data.get("keystates", None),
         )
 
     @classmethod
@@ -120,6 +122,7 @@ class Config:
             auto_discover=options.get("auto_discover", False),
             enabled_devices=options.get("enabled_devices", []),
             filter_keys_only=options.get("filter_keys_only", True),
+            keystates=options.get("keystates", None)
         )
 
     @classmethod

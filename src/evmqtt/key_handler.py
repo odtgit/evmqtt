@@ -18,6 +18,10 @@ class KeyHandler:
         ignored_keys: Set of key codes to ignore (e.g., NUMLOCK).
     """
 
+    _KEYSTATES = {0: "RELEASE", 1: "PRESS", 2: "REPEAT"}
+
+    publish_keystates: set[int] = field(
+        default_factory=lambda: {1}) # Only publish key press, not release or repeat
     modifiers: set[str] = field(
         default_factory=lambda: {
             "KEY_LEFTSHIFT",
@@ -33,6 +37,13 @@ class KeyHandler:
     ignored_keys: set[str] = field(default_factory=lambda: {"KEY_NUMLOCK"})
     _key_state: dict[str, int] = field(default_factory=dict, repr=False)
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
+
+    @classmethod
+    def from_config(cls, values: set[int | str] | None) -> "KeyHandler":
+        mapping = {v: k for k, v in KeyHandler._KEYSTATES.items()}
+        if values is None:
+            return cls()
+        return cls(publish_keystates={mapping.get(v, v) for v in values})
 
     def update_modifier_state(self, keycode: str, keystate: int) -> None:
         """Update the state of a modifier key.
@@ -107,7 +118,7 @@ class KeyHandler:
         Returns:
             True if the event should be published.
         """
-        if keystate != 1:  # Only publish key press, not release or repeat
+        if not keystate in self.publish_keystates:
             return False
 
         # Handle case where keycode is a list/tuple (multiple keys reported)
@@ -131,3 +142,7 @@ class KeyHandler:
         if isinstance(keycode, (list, tuple)):
             return "|".join(keycode)
         return keycode
+
+    @staticmethod
+    def format_keystate(keystate: int) -> str:
+        return KeyHandler._KEYSTATES.get(keystate, str(keystate))
