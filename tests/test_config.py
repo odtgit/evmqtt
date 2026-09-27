@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from evmqtt.config import Config
+from evmqtt.core import KeyState
 
 
 def base_dict(**overrides: object) -> dict[str, object]:
@@ -188,3 +189,45 @@ def test_auto_discover_allows_empty_devices() -> None:
     config = Config.from_dict(base_dict(devices=[], auto_discover=True))
     assert config.devices == []
     assert config.auto_discover is True
+
+
+def test_keystates_default_is_press_only() -> None:
+    config = Config.from_dict(base_dict())
+    assert config.keystates == frozenset({KeyState.PRESS})
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        (["RELEASE"], frozenset({KeyState.RELEASE})),
+        (["press", "repeat"], frozenset({KeyState.PRESS, KeyState.REPEAT})),
+        ([0], frozenset({KeyState.RELEASE})),
+        ([KeyState.PRESS], frozenset({KeyState.PRESS})),
+    ],
+)
+def test_keystates_normalized(value: list[object], expected: frozenset) -> None:
+    config = Config.from_dict(base_dict(keystates=value))
+    assert config.keystates == expected
+
+
+@pytest.mark.parametrize(
+    ("value", "exc_type", "match"),
+    [
+        (["INVALID"], ValueError, "Invalid keystate: INVALID"),
+        ([3], ValueError, "Invalid keystate: 3"),
+        ([None], TypeError, "Invalid keystate type: NoneType"),
+        ([], ValueError, "keystates cannot be empty"),
+    ],
+)
+def test_keystates_rejects_invalid_values(
+    value: list[object], exc_type: type[Exception], match: str
+) -> None:
+    with pytest.raises(exc_type, match=match):
+        Config.from_dict(base_dict(keystates=value))
+
+
+def test_keystates_from_ha_options_default_is_press_only() -> None:
+    config = Config.from_ha_options(
+        {"mqtt_host": "ha.local", "devices": ["/dev/input/event0"]}
+    )
+    assert config.keystates == frozenset({KeyState.PRESS})

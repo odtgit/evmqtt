@@ -223,6 +223,7 @@ class InputMonitor:
             + self._key_handler.modifier_suffix(event.modifiers),
             "devicePath": self.device.path,
             "deviceName": self.device.name,
+            "state": event.state.name,
         }
         message_json = json.dumps(message)
         self._mqtt_client.publish(self.state_topic, message_json)

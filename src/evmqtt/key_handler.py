@@ -39,14 +39,14 @@ class KeyHandler:
         return keycode in self.ignored_keys
 
     def should_publish(
-        self, keycode: str | list[str] | tuple[str, ...], keystate: int
+        self, keycode: str | list[str] | tuple[str, ...], keystate: KeyState
     ) -> bool:
         """Publish configured states of non-modifier, non-ignored keys.
 
         Args:
             keycode: A key name, or all names of an aliased code
                 (e.g. KEY_MUTE -> ('KEY_MIN_INTERESTING', 'KEY_MUTE')).
-            keystate: 0 release, 1 press, 2 repeat.
+            keystate: RELEASE, PRESS or REPEAT.
         """
         if keystate not in self.publish_states:
             return False

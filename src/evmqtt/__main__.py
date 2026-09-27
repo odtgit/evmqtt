@@ -251,7 +251,7 @@ class Application:
                 device_path=device_path,
                 base_topic=self._config.topic,
                 gateway_name=self._config.name,
-                key_handler=KeyHandler(),
+                key_handler=KeyHandler(publish_states=self._config.keystates),
                 device_slug=device_slug,
                 unique_id=unique_id,
                 initially_enabled=initially_enabled,

@@ -28,15 +28,20 @@ from tests.fakes import (
 BASE_TOPIC = "homeassistant/sensor/evmqtt"
 
 
-def make_wrapper(fake_mqtt) -> MQTTClientWrapper:
-    config = Config.from_dict(
+def make_config(extra_entries: dict) -> Config:
+    return Config.from_dict(
         {
             "serverip": "broker.local",
             "name": "Gateway",
             "topic": BASE_TOPIC,
             "devices": ["/dev/input/event0"],
         }
+        | extra_entries
     )
+
+
+def make_wrapper(fake_mqtt) -> MQTTClientWrapper:
+    config = make_config({})
     return MQTTClientWrapper("test-client", config)
 
 
@@ -53,7 +58,7 @@ def make_monitor(
         device_path=path,
         base_topic=BASE_TOPIC,
         gateway_name="Gateway",
-        key_handler=KeyHandler(),
+        key_handler=KeyHandler(publish_states=wrapper._config.keystates),
         device_slug=slug,
     )
     return device, monitor
@@ -303,5 +308,88 @@ async def test_modifier_suffix_survives_autorepeat_hold(fake_evdev, fake_mqtt) -
         assert await until(lambda: published(wrapper.client, monitor.state_topic))
         payload = last_payload(wrapper, monitor.state_topic)
         assert payload["key"] == "KEY_A_KEY_LEFTSHIFT"
+    finally:
+        await stop_and_join(monitor, task)
+
+
+async def test_keystate_default_is_press_only(fake_evdev, fake_mqtt) -> None:
+    wrapper = make_wrapper(fake_mqtt)
+    device, monitor = make_monitor(fake_evdev, wrapper)
+    task = await start(monitor)
+    try:
+        device.push(press("KEY_A"))
+        device.push(hold("KEY_A"))
+        device.push(release("KEY_A"))
+        assert await until(lambda: published(wrapper.client, monitor.state_topic))
+        payload = last_payload(wrapper, monitor.state_topic)
+        assert payload["state"] == "PRESS"
+    finally:
+        await stop_and_join(monitor, task)
+
+
+async def test_keystate_is_limited_to_release_when_configured_to_release(
+    fake_evdev, fake_mqtt
+) -> None:
+    config = make_config({"keystates": ["RELEASE"]})
+    wrapper = MQTTClientWrapper("test-client", config)
+    device, monitor = make_monitor(fake_evdev, wrapper)
+    task = await start(monitor)
+    try:
+        device.push(press("KEY_A"))
+        device.push(hold("KEY_A"))
+        device.push(release("KEY_A"))
+        assert await until(lambda: published(wrapper.client, monitor.state_topic))
+        payload = last_payload(wrapper, monitor.state_topic)
+        assert payload["state"] == "RELEASE"
+    finally:
+        await stop_and_join(monitor, task)
+
+
+async def test_keystates_are_reported_as_configured(fake_evdev, fake_mqtt) -> None:
+    config = make_config({"keystates": ["RELEASE", "PRESS", "REPEAT"]})
+    wrapper = MQTTClientWrapper("test-client", config)
+    device, monitor = make_monitor(fake_evdev, wrapper)
+    task = await start(monitor)
+    try:
+        device.push(press("KEY_A"))
+        device.push(hold("KEY_A"))
+        device.push(release("KEY_A"))
+        assert await until(
+            lambda: len(published(wrapper.client, monitor.state_topic)) >= 3
+        )
+        assert monitor.running
+
+        expected = ["PRESS", "REPEAT", "RELEASE"]
+        payloads = [
+            json.loads(r.payload)
+            for r in published(wrapper.client, monitor.state_topic)
+        ]
+        assert [p["state"] for p in payloads] == expected
+    finally:
+        await stop_and_join(monitor, task)
+
+
+async def test_modifier_press_is_dropped_even_when_release_configured(
+    fake_evdev, fake_mqtt
+) -> None:
+    """A modifier key's own release must stay filtered, all keystates on."""
+    config = make_config({"keystates": ["PRESS", "RELEASE", "REPEAT"]})
+    wrapper = MQTTClientWrapper("test-client", config)
+    device, monitor = make_monitor(fake_evdev, wrapper)
+    task = await start(monitor)
+    try:
+        device.push(press("KEY_LEFTSHIFT"))
+        device.push(release("KEY_LEFTSHIFT"))
+        device.push(press("KEY_A"))
+        device.push(release("KEY_A"))
+        assert await until(
+            lambda: len(published(wrapper.client, monitor.state_topic)) >= 2
+        )
+        payloads = [
+            json.loads(r.payload)
+            for r in published(wrapper.client, monitor.state_topic)
+        ]
+        assert [p["key"] for p in payloads] == ["KEY_A", "KEY_A"]
+        assert [p["state"] for p in payloads] == ["PRESS", "RELEASE"]
     finally:
         await stop_and_join(monitor, task)
