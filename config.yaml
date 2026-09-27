@@ -12,8 +12,6 @@ host_network: true
 privileged:
   - SYS_RAWIO
 full_access: true
-map:
-  - config:rw
 options:
   mqtt_host: "homeassistant.local"
   mqtt_port: 1883
