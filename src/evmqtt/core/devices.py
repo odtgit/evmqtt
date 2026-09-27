@@ -113,18 +113,36 @@ def slugify(text: str) -> str:
     return text or "unknown-device"
 
 
+def is_placeholder_serial(uniq: str) -> bool:
+    """Empty, or only zeros and separators ("0", "000000", "00:00:00:00:00:00")."""
+    return not uniq.strip().strip("0:-. ")
+
+
+def phys_interface(phys: str) -> str:
+    """Port-independent tail of phys: 'input1' in 'usb-0000:00:14.0-3/input1'."""
+    return phys.rsplit("/", 1)[1] if "/" in phys else ""
+
+
 def make_device_id(
     name: str, phys: str, uniq: str, bustype: int, vendor: int, product: int
 ) -> str:
-    """Stable id: name slug plus a hash of bus/vendor/product/phys/uniq/name.
+    """Stable id: name slug plus a hash, serial first.
 
-    phys carries the port path (usb-0000:00:14.0-3.2/input1), which splits
-    identical devices on different ports and interfaces of one device.
-    uniq carries the Bluetooth peer address, which splits devices sharing
-    one adapter (same phys). version is left out, it moves with firmware.
+    With a real serial (uniq, e.g. a USB serial or the Bluetooth peer MAC)
+    the hash covers bus/vendor/product/uniq/name plus the interface tail of
+    phys (input1), so the id survives a port move and interfaces sharing a
+    serial stay apart. Without one it covers bus/vendor/product/phys/name;
+    phys carries the port path (usb-0000:00:14.0-3.2/input1). version and
+    eventN are left out.
     """
+    serial = uniq.strip()
+    anchor: tuple[str, ...]
+    if is_placeholder_serial(serial):
+        anchor = ("phys", phys)
+    else:
+        anchor = ("uniq", serial, phys_interface(phys))
     material = "\0".join(
-        (f"{bustype:04x}", f"{vendor:04x}", f"{product:04x}", phys, uniq, name)
+        (f"{bustype:04x}", f"{vendor:04x}", f"{product:04x}", *anchor, name)
     )
     digest = hashlib.sha256(material.encode()).hexdigest()[:8]
     prefix = slugify(name)[:_SLUG_ID_MAX].rstrip("-")

@@ -11,9 +11,11 @@ from evmqtt.core.devices import (
     has_key_events,
     is_keyboard_code,
     is_keyboard_like,
+    is_placeholder_serial,
     list_devices,
     make_device_id,
     open_device,
+    phys_interface,
     slugify,
 )
 from evmqtt.core.events import KeyEvent, KeyState, ReaderStopped, StopReason
@@ -52,10 +54,12 @@ __all__ = [
     "has_key_events",
     "is_keyboard_code",
     "is_keyboard_like",
+    "is_placeholder_serial",
     "key_name",
     "key_names",
     "list_devices",
     "make_device_id",
     "open_device",
+    "phys_interface",
     "slugify",
 ]

@@ -361,9 +361,11 @@ async def main():
 asyncio.run(main())
 ```
 
-`info.id` is stable across reboots and eventN renumbering (name slug plus a
-hash of bus, vendor, product, phys and uniq). The 1.x MQTT topics still use
-the name slug and eventN.
+`info.id` is stable across reboots and eventN renumbering: name slug plus a
+hash of bus, vendor, product, name and either the serial (uniq, plus the
+interface number) when the device has a real one, so it survives a port
+move, or the port path (phys) when it does not. The 1.x MQTT topics still
+use the name slug and eventN.
 
 ## Development
 

@@ -9,8 +9,10 @@ from evmqtt.core import (
     describe,
     has_key_events,
     is_keyboard_like,
+    is_placeholder_serial,
     list_devices,
     make_device_id,
+    phys_interface,
 )
 from tests.fakes import FakeEvdevRegistry, FakeInputDevice, keyboard_capabilities
 
@@ -86,12 +88,18 @@ def test_id_does_not_depend_on_firmware_version() -> None:
     assert device_id(phys=phys, version=0x0111) == device_id(phys=phys, version=0x0200)
 
 
-def test_interfaces_of_one_usb_device_get_distinct_ids() -> None:
+def test_interfaces_sharing_a_serial_get_distinct_ids() -> None:
     ids = {device_id(phys=f"usb-0000:0d:00.3-3/input{n}", **HUNTSMAN) for n in range(4)}
     assert len(ids) == 4
 
 
-def test_identical_usb_devices_on_different_ports_get_distinct_ids() -> None:
+def test_port_move_with_serial_keeps_id() -> None:
+    before = device_id(phys="usb-0000:0d:00.3-3/input1", **HUNTSMAN)
+    other_port = device_id(phys="usb-0000:00:14.0-1.4/input1", **HUNTSMAN)
+    assert before == other_port
+
+
+def test_identical_usb_devices_without_serial_split_on_port() -> None:
     common = {"name": "USB Keyboard", "vendor": 0x046D, "product": 0xC31C}
     port1 = device_id(phys="usb-0000:00:14.0-1/input0", **common)
     port2 = device_id(phys="usb-0000:00:14.0-2/input0", **common)
@@ -99,17 +107,57 @@ def test_identical_usb_devices_on_different_ports_get_distinct_ids() -> None:
     assert len({port1, port2, hub_port}) == 3
 
 
-def test_identical_bluetooth_devices_on_one_adapter_split_on_uniq() -> None:
+@pytest.mark.parametrize("uniq", ["", "   ", "0", "000000000000", "00:00:00:00:00:00"])
+def test_placeholder_serial_falls_back_to_port(uniq: str) -> None:
+    common = {"name": "USB Keyboard", "uniq": uniq}
+    port1 = device_id(phys="usb-0000:00:14.0-1/input0", **common)
+    port2 = device_id(phys="usb-0000:00:14.0-2/input0", **common)
+    assert port1 != port2
+    assert port1 == device_id(phys="usb-0000:00:14.0-1/input0", name="USB Keyboard")
+    assert is_placeholder_serial(uniq)
+
+
+def test_real_serials_are_not_placeholders() -> None:
+    assert not is_placeholder_serial("00000000001A")
+    assert not is_placeholder_serial("11:22:33:44:55:66")
+    assert device_id(uniq=" ABC ", phys="a/input0") == device_id(
+        uniq="ABC", phys="b/input0"
+    )
+
+
+def test_bluetooth_id_follows_device_mac_not_adapter() -> None:
     common = {
         "name": "Remote",
-        "phys": "aa:bb:cc:dd:ee:ff",
         "bustype": BLUETOOTH,
         "vendor": 0x0717,
         "product": 0x0101,
     }
-    first = device_id(uniq="11:22:33:44:55:66", **common)
-    second = device_id(uniq="11:22:33:44:55:77", **common)
+    adapter = "aa:bb:cc:dd:ee:ff"
+    first = device_id(phys=adapter, uniq="11:22:33:44:55:66", **common)
+    second = device_id(phys=adapter, uniq="11:22:33:44:55:77", **common)
+    new_adapter = device_id(
+        phys="aa:bb:cc:dd:ee:00", uniq="11:22:33:44:55:66", **common
+    )
     assert first != second
+    assert first == new_adapter
+
+
+def test_phys_interface() -> None:
+    assert phys_interface("usb-0000:00:14.0-3.2/input1") == "input1"
+    assert phys_interface("aa:bb:cc:dd:ee:ff") == ""
+    assert phys_interface("") == ""
+
+
+def test_same_fake_serial_gets_suffixes(fake_evdev: FakeEvdevRegistry) -> None:
+    for n, port in ((4, 1), (5, 2)):
+        fake_evdev.add(
+            f"/dev/input/event{n}",
+            "Cheap Remote",
+            phys=f"usb-0000:00:14.0-{port}/input0",
+            uniq="1234567890",
+        )
+    ids = [d.id for d in list_devices()]
+    assert ids[1] == f"{ids[0]}-2"
 
 
 def test_nodes_sharing_phys_split_on_name() -> None:
