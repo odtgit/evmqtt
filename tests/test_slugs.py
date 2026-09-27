@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from evmqtt.device_discovery import slugify
+from evmqtt.core import slugify
 
 
 @pytest.mark.parametrize(

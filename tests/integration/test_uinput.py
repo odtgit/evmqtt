@@ -1,187 +1,182 @@
-"""Integration scenario tests against a real kernel input device via uinput.
+"""The gateway against real kernel input devices created through uinput.
 
-These exercise the daemon's InputMonitor on the core asyncio reader against
-an actual evdev character device (created with evdev.UInput), rather than
-the FakeInputDevice pipe model used by the fast tier. This tier caught the
-original 1.x stop()-hang bug, where closing an fd did not wake a thread
-blocked in select() on it; the fake cannot model that class of bug.
-
-Skipped unless the runner can both write to /dev/uinput and actually
-expose the resulting /dev/input/eventN node (some CI setups can open
-/dev/uinput but the eventN node comes up root:input 0660, unreadable by
-the runner user, so evdev.UInput.device is None). Run explicitly with
-`pytest -m uinput`.
-
-Set EVMQTT_REQUIRE_UINPUT=1 to turn that skip into a hard failure. CI
-sets this so a runner that is supposed to support uinput (module loaded,
-udev rules in place) fails loudly instead of silently skipping if it
-regresses; local runs without uinput are left alone and skip as usual.
+uinput devices are virtual, so every test lists its device explicitly and
+nothing else on the machine is selected. Skipped unless /dev/uinput is
+writable; EVMQTT_REQUIRE_UINPUT=1 turns the skip into a failure (CI).
 """
 
 from __future__ import annotations
 
-import asyncio
+import errno
 import json
-import time
+import select
+import uuid
+from pathlib import Path
 
+import evdev
 import pytest
 from evdev import UInput, ecodes
 
+import evmqtt.sysinfo as sysinfo
 from evmqtt.config import Config
-from evmqtt.core import StopReason
-from evmqtt.input_monitor import InputMonitor
-from evmqtt.key_handler import KeyHandler
-from evmqtt.mqtt_client import MQTTClientWrapper
+from evmqtt.core import describe, open_device
+from evmqtt.gateway import Gateway
 from tests.fakes import published, until
 from tests.integration.conftest import UInputFactory
 
 pytestmark = pytest.mark.uinput
 
-BASE_TOPIC = "homeassistant/sensor/evmqtt"
+BASE = "evmqtt/uinput"
 
 
-def make_wrapper(fake_mqtt) -> MQTTClientWrapper:
-    config = Config.from_dict(
-        {
-            "serverip": "broker.local",
-            "name": "Gateway",
-            "topic": BASE_TOPIC,
-            "devices": ["/dev/input/event0"],
-        }
-    )
-    return MQTTClientWrapper("uinput-test", config)
-
-
-def make_monitor(
-    wrapper: MQTTClientWrapper, path: str, slug: str = "uinput-kb"
-) -> InputMonitor:
-    return InputMonitor(
-        mqtt_client=wrapper,
-        device_path=path,
-        base_topic=BASE_TOPIC,
-        gateway_name="Gateway",
-        key_handler=KeyHandler(),
-        device_slug=slug,
-    )
-
-
-def last_payload(wrapper: MQTTClientWrapper, topic: str) -> dict:
-    return json.loads(published(wrapper.client, topic)[-1].payload)
-
-
-def press(ui: UInput, code: int) -> None:
-    ui.write(ecodes.EV_KEY, code, 1)
-    ui.syn()
-
-
-def release(ui: UInput, code: int) -> None:
-    ui.write(ecodes.EV_KEY, code, 0)
-    ui.syn()
-
-
-def hold(ui: UInput, code: int) -> None:
-    ui.write(ecodes.EV_KEY, code, 2)
-    ui.syn()
-
-
-async def start(monitor: InputMonitor) -> asyncio.Task:
-    task = asyncio.ensure_future(monitor.run())
-    assert await until(lambda: monitor.running)
-    return task
-
-
-async def stop_and_join(monitor: InputMonitor, task: asyncio.Task) -> None:
-    monitor.stop()
-    await asyncio.wait_for(task, 2)
+@pytest.fixture(autouse=True)
+def real_sysfs(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(sysinfo, "SYSFS_ROOT", Path("/sys"))
 
 
 @pytest.fixture
-def virtual_keyboard(make_uinput: UInputFactory) -> UInput:
-    return make_uinput(name="evmqtt-test-keyboard")
+def name() -> str:
+    return f"evmqtt-test-kbd-{uuid.uuid4().hex[:8]}"
 
 
-async def test_press_publishes_key_event(virtual_keyboard, fake_mqtt) -> None:
-    wrapper = make_wrapper(fake_mqtt)
-    monitor = make_monitor(wrapper, virtual_keyboard.device.path)
-    task = await start(monitor)
+def make_config(tmp_path: Path, name: str, **overrides: object) -> Config:
+    data: dict[str, object] = {
+        "mqtt_host": "broker.local",
+        "base_topic": BASE,
+        "state_file": str(tmp_path / "state.json"),
+        "rescan_interval": 0,
+        "auto_discover": False,
+        "devices": [name],
+    }
+    data.update(overrides)
+    return Config.from_dict(data)
+
+
+def tap(ui: UInput, code: int, *states: int) -> None:
+    for state in states:
+        ui.write(ecodes.EV_KEY, code, state)
+        ui.syn()
+
+
+def other_can_grab(path: str) -> bool:
+    other = evdev.InputDevice(path)
     try:
-        press(virtual_keyboard, ecodes.KEY_A)
-        release(virtual_keyboard, ecodes.KEY_A)
-        assert await until(lambda: published(wrapper.client, monitor.state_topic))
-        payload = last_payload(wrapper, monitor.state_topic)
-        assert payload["key"] == "KEY_A"
+        other.grab()
+    except OSError as err:
+        assert err.errno == errno.EBUSY
+        return False
+    else:
+        other.ungrab()
+        return True
     finally:
-        await stop_and_join(monitor, task)
+        other.close()
 
 
-async def test_aliased_keycode_publishes_and_keeps_running(
-    virtual_keyboard, fake_mqtt
-) -> None:
-    """KEY_MUTE -> ('KEY_MIN_INTERESTING', 'KEY_MUTE') on a real device."""
-    wrapper = make_wrapper(fake_mqtt)
-    monitor = make_monitor(wrapper, virtual_keyboard.device.path)
-    task = await start(monitor)
-    try:
-        press(virtual_keyboard, ecodes.KEY_MUTE)
-        release(virtual_keyboard, ecodes.KEY_MUTE)
-        press(virtual_keyboard, ecodes.KEY_A)
-        release(virtual_keyboard, ecodes.KEY_A)
-        assert await until(
-            lambda: len(published(wrapper.client, monitor.state_topic)) >= 2
+async def start(config: Config) -> Gateway:
+    gateway = Gateway(config, cleanup_window=0.01)
+    await gateway.start()
+    assert await until(
+        lambda: (
+            gateway.mqtt is not None
+            and any(r.topic == f"{BASE}/status" for r in gateway.mqtt.client.published)
         )
-        payloads = [
-            json.loads(r.payload)
-            for r in published(wrapper.client, monitor.state_topic)
-        ]
-        assert payloads[0]["key"] == "KEY_MIN_INTERESTING|KEY_MUTE"
-        assert monitor.running
-    finally:
-        await stop_and_join(monitor, task)
+    )
+    return gateway
 
 
-async def test_modifier_suffix_survives_autorepeat_hold(
-    virtual_keyboard, fake_mqtt
+async def test_uinput_device_is_virtual_and_not_selected_by_default(
+    make_uinput: UInputFactory, name: str, tmp_path: Path
 ) -> None:
-    wrapper = make_wrapper(fake_mqtt)
-    monitor = make_monitor(wrapper, virtual_keyboard.device.path)
-    task = await start(monitor)
+    ui = make_uinput(name=name)
+    device = open_device(ui.device.path)
     try:
-        press(virtual_keyboard, ecodes.KEY_LEFTSHIFT)
-        hold(virtual_keyboard, ecodes.KEY_LEFTSHIFT)
-        press(virtual_keyboard, ecodes.KEY_A)
-        assert await until(lambda: published(wrapper.client, monitor.state_topic))
-        payload = last_payload(wrapper, monitor.state_topic)
-        assert payload["key"] == "KEY_A_KEY_LEFTSHIFT"
+        info = describe(device)
     finally:
-        release(virtual_keyboard, ecodes.KEY_A)
-        release(virtual_keyboard, ecodes.KEY_LEFTSHIFT)
-        await stop_and_join(monitor, task)
+        device.close()
+    assert info.is_keyboard_like
+    assert sysinfo.is_virtual(info)
+    auto = Gateway(Config.from_dict({"state_file": str(tmp_path / "s.json")}))
+    assert not auto.selected(info)
+    assert Gateway(make_config(tmp_path, name)).selected(info)
 
 
-async def test_stop_returns_quickly_with_idle_device(
-    virtual_keyboard, fake_mqtt
+async def test_switch_off_releases_grab_on_real_device(
+    make_uinput: UInputFactory, name: str, fake_mqtt, tmp_path: Path
 ) -> None:
-    """The bug this whole tier exists for: stop() must not hang on a real,
-    idle device fd."""
-    wrapper = make_wrapper(fake_mqtt)
-    monitor = make_monitor(wrapper, virtual_keyboard.device.path)
-    task = await start(monitor)
+    ui = make_uinput(name=name)
+    path = ui.device.path
+    gateway = await start(make_config(tmp_path, name))
+    try:
+        client = fake_mqtt.last()
+        (dev_id,) = gateway.devices
+        assert not other_can_grab(path)
 
-    started = time.monotonic()
-    monitor.stop()
-    await asyncio.wait_for(task, 1.0)
-    elapsed = time.monotonic() - started
+        tap(ui, ecodes.KEY_LEFTSHIFT, 1)
+        tap(ui, ecodes.KEY_MUTE, 1, 0)
+        tap(ui, ecodes.KEY_LEFTSHIFT, 0)
+        assert await until(lambda: published(client, f"{BASE}/{dev_id}/event"))
+        event = json.loads(published(client, f"{BASE}/{dev_id}/event")[-1].payload)
+        assert (event["key"], event["modifiers"]) == ("KEY_MUTE", ["KEY_LEFTSHIFT"])
 
-    assert not monitor.running
-    assert elapsed < 1.0
+        client.inject(f"{BASE}/{dev_id}/switch/set", "OFF")
+        assert await until(lambda: not gateway.devices[dev_id].enabled)
+        assert other_can_grab(path)
+        tap(ui, ecodes.KEY_A, 1, 0)
+        fd = gateway.devices[dev_id].reader.device.fd
+        assert await until(lambda: not select.select([fd], [], [], 0)[0])
+
+        client.inject(f"{BASE}/{dev_id}/switch/set", "ON")
+        assert await until(lambda: gateway.devices[dev_id].enabled)
+        assert not other_can_grab(path)
+        tap(ui, ecodes.KEY_B, 1, 0)
+        assert await until(
+            lambda: len(published(client, f"{BASE}/{dev_id}/event")) == 2
+        )
+        keys = [
+            json.loads(r.payload)["key"]
+            for r in published(client, f"{BASE}/{dev_id}/event")
+        ]
+        assert keys == ["KEY_MUTE", "KEY_B"]
+    finally:
+        await gateway.stop()
+    assert other_can_grab(path)
 
 
-async def test_unplug_ends_monitor_cleanly(virtual_keyboard, fake_mqtt) -> None:
-    wrapper = make_wrapper(fake_mqtt)
-    monitor = make_monitor(wrapper, virtual_keyboard.device.path)
-    task = await start(monitor)
+async def test_disabled_at_start_is_not_grabbed(
+    make_uinput: UInputFactory, name: str, fake_mqtt, tmp_path: Path
+) -> None:
+    ui = make_uinput(name=name)
+    gateway = await start(make_config(tmp_path, name, enabled_devices=["other"]))
+    try:
+        assert other_can_grab(ui.device.path)
+    finally:
+        await gateway.stop()
 
-    virtual_keyboard.close()  # destroys the /dev/input/eventN node
-    result = await asyncio.wait_for(task, 2)
-    assert result.reason is StopReason.UNPLUGGED
-    assert not monitor.running
+
+async def test_unplug_goes_offline_and_replug_comes_back(
+    make_uinput: UInputFactory, name: str, fake_mqtt, tmp_path: Path
+) -> None:
+    ui = make_uinput(name=name)
+    gateway = await start(make_config(tmp_path, name))
+    try:
+        client = fake_mqtt.last()
+        (dev_id,) = gateway.devices
+        avail = f"{BASE}/{dev_id}/availability"
+        assert published(client, avail)[-1].payload == "online"
+
+        ui.close()
+        assert await until(lambda: published(client, avail)[-1].payload == "offline")
+        await gateway.rescan()
+        assert list(gateway.devices) == [dev_id]
+
+        ui2 = make_uinput(name=name)
+        await gateway.rescan()
+        assert list(gateway.devices) == [dev_id]
+        assert published(client, avail)[-1].payload == "online"
+        assert not other_can_grab(ui2.device.path)
+        tap(ui2, ecodes.KEY_B, 1, 0)
+        assert await until(lambda: published(client, f"{BASE}/{dev_id}/event"))
+        event = json.loads(published(client, f"{BASE}/{dev_id}/event")[-1].payload)
+        assert event["devicePath"] == ui2.device.path
+    finally:
+        await gateway.stop()
