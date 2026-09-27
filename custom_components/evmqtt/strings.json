@@ -1,0 +1,90 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Input devices",
+        "description": "Found {count} keyboard-like input device(s) ({virtual} virtual). Enabled devices are grabbed: their keys go to Home Assistant only, not to the host console or desktop. Every listed device gets entities; unselected ones start disabled.",
+        "data": {
+          "enabled_devices": "Enable",
+          "include_virtual": "Include virtual devices"
+        },
+        "data_description": {
+          "enabled_devices": "Devices to grab and turn into events. Do not enable the only keyboard of this host.",
+          "include_virtual": "uinput devices such as keyd, kanata or ydotool outputs. Off by default to avoid feedback loops."
+        }
+      }
+    },
+    "error": {
+      "no_input": "No /dev/input/event* nodes. Map /dev/input into the Home Assistant container (see the README), then submit to retry.",
+      "permission_denied": "/dev/input/event* exists but none can be opened. Give Home Assistant read-write access (input group or a udev rule), then submit to retry.",
+      "no_devices": "No keyboard-like devices found. Submit to set up anyway; devices plugged in later appear disabled."
+    },
+    "abort": {
+      "single_instance_allowed": "Already configured. Only a single configuration possible."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "evmqtt options",
+        "data": {
+          "enabled_devices": "Enabled devices",
+          "keystates": "Key states",
+          "rescan_interval": "Rescan interval",
+          "include_virtual": "Include virtual devices",
+          "new_devices_enabled": "Enable new devices",
+          "mqtt_mirror": "MQTT mirror",
+          "mqtt_base_topic": "MQTT base topic"
+        },
+        "data_description": {
+          "enabled_devices": "Enabled devices are grabbed.",
+          "keystates": "Key states that fire events.",
+          "rescan_interval": "Hotplug scan period in seconds. 0 disables hotplug.",
+          "include_virtual": "Also manage uinput devices.",
+          "new_devices_enabled": "Grab newly seen devices immediately. Off is safer: a new keyboard on this host would otherwise stop typing locally.",
+          "mqtt_mirror": "Also publish each event to <base topic>/<device id>/event, same payload as the evmqtt daemon.",
+          "mqtt_base_topic": "Base topic for the MQTT mirror."
+        }
+      }
+    },
+    "error": {
+      "keystates_required": "Select at least one key state.",
+      "invalid_topic": "Not a valid MQTT topic."
+    }
+  },
+  "selector": {
+    "keystates": {
+      "options": {
+        "press": "Press",
+        "repeat": "Repeat",
+        "release": "Release"
+      }
+    }
+  },
+  "entity": {
+    "event": {
+      "key": {
+        "name": "Key",
+        "state_attributes": {
+          "event_type": {
+            "state": {
+              "press": "Press",
+              "repeat": "Repeat",
+              "release": "Release"
+            }
+          }
+        }
+      }
+    },
+    "switch": {
+      "enabled": {
+        "name": "Enabled"
+      }
+    }
+  },
+  "exceptions": {
+    "grab_failed": {
+      "message": "Could not grab {name}: {error}"
+    }
+  }
+}
