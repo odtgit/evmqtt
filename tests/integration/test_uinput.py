@@ -7,7 +7,11 @@ original stop()-hang bug: closing an fd does not wake a thread blocked in
 select() on it on Linux, so a fake that models close() as "wakes the
 reader" can pass while the real thing hangs.
 
-Skipped unless /dev/uinput is writable. Run explicitly with `pytest -m uinput`.
+Skipped unless the runner can both write to /dev/uinput and actually
+expose the resulting /dev/input/eventN node (some hosted CI containers
+allow the former without the latter - no udev/devtmpfs enumeration of
+input devices - in which case evdev.UInput.device is None). Run
+explicitly with `pytest -m uinput`.
 """
 
 from __future__ import annotations
@@ -28,7 +32,12 @@ from tests.fakes import published, wait_for
 
 pytestmark = pytest.mark.uinput
 
-UINPUT_AVAILABLE = os.path.exists("/dev/uinput") and os.access("/dev/uinput", os.W_OK)
+# Cheap check only; this deliberately does not open /dev/uinput so importing
+# this module (e.g. during collection of the fast tier, where these tests
+# are deselected) never touches real hardware.
+UINPUT_NODE_WRITABLE = os.path.exists("/dev/uinput") and os.access(
+    "/dev/uinput", os.W_OK
+)
 
 BASE_TOPIC = "homeassistant/sensor/evmqtt"
 
@@ -84,7 +93,7 @@ def stop_and_join(monitor: InputMonitor) -> None:
 
 @pytest.fixture
 def virtual_keyboard() -> Iterator[UInput]:
-    if not UINPUT_AVAILABLE:
+    if not UINPUT_NODE_WRITABLE:
         pytest.skip("/dev/uinput not writable")
     capabilities = {
         ecodes.EV_KEY: sorted(
@@ -97,6 +106,12 @@ def virtual_keyboard() -> Iterator[UInput]:
         )
     }
     ui = UInput(capabilities, name="evmqtt-test-keyboard")
+    if ui.device is None:
+        # /dev/uinput is writable but the runner never exposed a matching
+        # /dev/input/eventN node (no udev/devtmpfs enumeration of input
+        # devices in some hosted CI containers).
+        ui.close()
+        pytest.skip("uinput device created but no /dev/input/eventN node is visible")
     try:
         # Give the kernel a moment to register the new /dev/input/eventN node.
         time.sleep(0.1)
