@@ -1,6 +1,6 @@
 # Build stage for Python package
-ARG BUILD_FROM=ghcr.io/home-assistant/amd64-base-python:3.12-alpine3.18
-FROM python:3.12-alpine3.18 AS builder
+ARG BUILD_FROM=ghcr.io/home-assistant/amd64-base-python:3.13-alpine3.24
+FROM python:3.13-alpine3.24 AS builder
 
 RUN apk add --no-cache linux-headers gcc libc-dev
 

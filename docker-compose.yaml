@@ -5,7 +5,7 @@ services:
     build:
       context: .
       args:
-        BUILD_FROM: python:3.12-alpine3.18
+        BUILD_FROM: python:3.13-alpine3.24
     image: odtdock/evmqtt:latest
     restart: always
     volumes:
