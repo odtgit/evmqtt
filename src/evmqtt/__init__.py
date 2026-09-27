@@ -24,11 +24,8 @@ __author__ = "odtgit"
 
 _LAZY = {
     "Config": "evmqtt.config",
-    "DiscoveredDevice": "evmqtt.device_discovery",
-    "discover_devices": "evmqtt.device_discovery",
-    "slugify": "evmqtt.device_discovery",
-    "InputMonitor": "evmqtt.input_monitor",
-    "KeyHandler": "evmqtt.key_handler",
+    "ConfigError": "evmqtt.config",
+    "Gateway": "evmqtt.gateway",
     "MQTTClientWrapper": "evmqtt.mqtt_client",
 }
 

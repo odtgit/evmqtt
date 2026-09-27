@@ -12,7 +12,6 @@ import errno
 import os
 import queue
 import select
-import socket
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -21,7 +20,12 @@ from typing import Any, ClassVar
 
 import evdev
 from evdev import ecodes
-from paho.mqtt.client import ConnectFlags, DisconnectFlags, MQTTMessage
+from paho.mqtt.client import (
+    ConnectFlags,
+    DisconnectFlags,
+    MQTTMessage,
+    topic_matches_sub,
+)
 from paho.mqtt.packettypes import PacketTypes
 from paho.mqtt.reasoncodes import ReasonCode
 
@@ -315,17 +319,29 @@ class PublishRecord:
     retain: bool
 
 
-class FakePahoClient:
-    """Stand-in for paho.mqtt.client.Client.
+class FakePublishInfo:
+    rc = 0
 
-    Each test gets a fresh subclass (see conftest.fake_mqtt) so class-level
-    state (created instances, auto_connect) does not leak between tests.
+    def wait_for_publish(self, timeout: float | None = None) -> None:
+        pass
+
+    def is_published(self) -> bool:
+        return True
+
+
+class FakePahoClient:
+    """Stand-in for paho.mqtt.client.Client with a tiny in-memory broker.
+
+    Each test gets a fresh subclass (see conftest.fake_mqtt); `retained` is
+    class-level so it outlives one client, like a broker across restarts.
+    subscribe() delivers matching retained messages synchronously; an unclean
+    drop() stores the will, a clean disconnect() does not.
     """
 
     created: ClassVar[list[FakePahoClient]] = []
     auto_connect: ClassVar[bool] = True
     connect_should_fail: ClassVar[bool] = False
-    fail_hosts: ClassVar[set[str]] = set()
+    retained: ClassVar[dict[str, Any]] = {}
 
     def __init__(
         self,
@@ -336,6 +352,7 @@ class FakePahoClient:
     ) -> None:
         self.client_id = client_id
         self.on_connect: Callable[..., None] | None = None
+        self.on_connect_fail: Callable[..., None] | None = None
         self.on_disconnect: Callable[..., None] | None = None
         self.on_message: Callable[..., None] | None = None
         self.published: list[PublishRecord] = []
@@ -348,6 +365,9 @@ class FakePahoClient:
         self.connected = False
         self.username = None
         self.password = None
+        self.will: PublishRecord | None = None
+        self.reconnect_delay: tuple[int, int] | None = None
+        self.loop_running = False
         type(self).created.append(self)
 
     def username_pw_set(self, username: str, password: str | None = None) -> None:
@@ -356,6 +376,14 @@ class FakePahoClient:
 
     def enable_logger(self, logger: Any = None) -> None:
         pass
+
+    def reconnect_delay_set(self, min_delay: int = 1, max_delay: int = 120) -> None:
+        self.reconnect_delay = (min_delay, max_delay)
+
+    def will_set(
+        self, topic: str, payload: Any = None, qos: int = 0, retain: bool = False
+    ) -> None:
+        self.will = PublishRecord(topic, payload, qos, retain)
 
     def tls_set(self, ca_certs: str | None = None, **kwargs: Any) -> None:
         if ca_certs and not Path(ca_certs).is_file():
@@ -368,21 +396,21 @@ class FakePahoClient:
     def tls_insecure_set(self, value: bool) -> None:
         self.tls_insecure = value
 
-    def connect(self, host: str, port: int = 1883, *args: Any, **kwargs: Any) -> None:
-        if host in type(self).fail_hosts:
-            raise socket.gaierror(-2, "Name or service not known")
+    def connect_async(self, host: str, port: int = 1883, *args: Any, **kw: Any) -> None:
         self.host = host
         self.port = port
 
     def loop_start(self) -> None:
+        self.loop_running = True
         if type(self).auto_connect:
             self.fire_connect(success=not type(self).connect_should_fail)
 
     def loop_stop(self) -> None:
-        pass
+        self.loop_running = False
 
     def disconnect(self) -> None:
-        self.fire_disconnect(normal=True)
+        if self.connected:
+            self.fire_disconnect(normal=True)
 
     def publish(
         self,
@@ -390,11 +418,17 @@ class FakePahoClient:
         payload: Any = None,
         qos: int = 0,
         retain: bool = False,
-    ) -> None:
+    ) -> FakePublishInfo:
         self.published.append(PublishRecord(topic, payload, qos, retain))
+        if retain:
+            self._retain(topic, payload)
+        return FakePublishInfo()
 
     def subscribe(self, topic: str, qos: int = 0) -> tuple[int, int]:
         self.subscriptions.append(topic)
+        for retained_topic, payload in list(type(self).retained.items()):
+            if topic_matches_sub(topic, retained_topic):
+                self.inject(retained_topic, payload, retain=True)
         return (0, 0)
 
     def unsubscribe(self, topic: str) -> tuple[int, int]:
@@ -402,13 +436,27 @@ class FakePahoClient:
             self.subscriptions.remove(topic)
         return (0, 0)
 
+    @classmethod
+    def _retain(cls, topic: str, payload: Any) -> None:
+        if payload in (None, "", b""):
+            cls.retained.pop(topic, None)
+        else:
+            cls.retained[topic] = payload
+
     # -- test-driven callback triggers ---------------------------------
     def fire_connect(self, success: bool = True) -> None:
-        reason = ReasonCode(PacketTypes.CONNACK, identifier=0 if success else 128)
+        reason = ReasonCode(PacketTypes.CONNACK, identifier=0 if success else 135)
         flags = ConnectFlags(session_present=False)
         self.connected = success
         if self.on_connect:
             self.on_connect(self, None, flags, reason, None)
+        if not success:
+            self.fire_disconnect(normal=False)
+
+    def fail_connect(self) -> None:
+        """One failed TCP attempt, as paho's retry loop reports it."""
+        if self.on_connect_fail:
+            self.on_connect_fail(self, None)
 
     def fire_disconnect(self, normal: bool = True) -> None:
         reason = ReasonCode(PacketTypes.DISCONNECT, identifier=0 if normal else 137)
@@ -418,15 +466,19 @@ class FakePahoClient:
             self.on_disconnect(self, None, flags, reason, None)
 
     def drop(self) -> None:
+        """Unclean connection loss: the broker publishes the will."""
+        if self.will is not None and self.will.retain:
+            self._retain(self.will.topic, self.will.payload)
         self.fire_disconnect(normal=False)
 
     def reconnect(self) -> None:
         self.fire_connect(success=True)
 
-    def inject(self, topic: str, payload: str | bytes) -> None:
+    def inject(self, topic: str, payload: str | bytes, retain: bool = False) -> None:
         message = MQTTMessage()
         message.topic = topic.encode()
         message.payload = payload.encode() if isinstance(payload, str) else payload
+        message.retain = retain
         if self.on_message:
             self.on_message(self, None, message)
 
@@ -452,5 +504,39 @@ def make_fake_paho_class() -> type[FakePahoClient]:
     _Client.created = []
     _Client.auto_connect = True
     _Client.connect_should_fail = False
-    _Client.fail_hosts = set()
+    _Client.retained = {}
     return _Client
+
+
+class FakeSysfs:
+    """A /sys tree with just what evmqtt.sysinfo reads."""
+
+    def __init__(self, root: Path) -> None:
+        self.root = root
+        self._n = 0
+
+    def add(
+        self,
+        event: str,
+        *,
+        virtual: bool = False,
+        manufacturer: str | None = None,
+        product: str | None = None,
+    ) -> Path:
+        self._n += 1
+        if virtual:
+            parent = self.root / "devices" / "virtual" / "input"
+        else:
+            usb = self.root / "devices" / "pci0000:00" / "usb1" / f"1-{self._n}"
+            usb.mkdir(parents=True, exist_ok=True)
+            if manufacturer:
+                (usb / "manufacturer").write_text(manufacturer + "\n")
+            if product:
+                (usb / "product").write_text(product + "\n")
+            parent = usb / f"1-{self._n}:1.0" / "input"
+        node = parent / f"input{self._n}"
+        node.mkdir(parents=True, exist_ok=True)
+        cls = self.root / "class" / "input" / event
+        cls.mkdir(parents=True, exist_ok=True)
+        (cls / "device").symlink_to(node)
+        return node

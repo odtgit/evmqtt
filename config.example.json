@@ -1,12 +1,14 @@
 {
-  "serverip":"127.0.0.1",
-  "port":1883,
-  "username":"user",
-  "password":"pwd",
-  "name":"Event Gateway (MQTT)",
-  "topic":"homeassistant/sensor/evmqtt",
+  "mqtt_host": "192.168.1.10",
+  "mqtt_port": 1883,
+  "mqtt_username": "user",
+  "mqtt_password": "pwd",
+  "name": "Input Events",
+  "discovery_prefix": "homeassistant",
+  "base_topic": "",
   "auto_discover": true,
-  "filter_keys_only": true,
+  "keystates": ["PRESS"],
   "devices": [],
-  "enabled_devices": []
+  "enabled_devices": [],
+  "log_level": "info"
 }

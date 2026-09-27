@@ -1,4 +1,4 @@
-"""Scenario tests for the evmqtt CLI entry point (main)."""
+"""The evmqtt CLI entry point (main)."""
 
 from __future__ import annotations
 
@@ -11,199 +11,150 @@ from pathlib import Path
 
 import pytest
 
-import evmqtt.__main__ as main_module
-from evmqtt.__main__ import Application, main, parse_args, setup_logging
+import evmqtt.gateway as gateway_module
+from evmqtt.__main__ import cli_log_level, main, parse_args
 from tests.fakes import keyboard_capabilities
-
-BASE_CONFIG: dict[str, object] = {
-    "serverip": "broker.local",
-    "name": "Gateway",
-    "topic": "homeassistant/sensor/evmqtt",
-    "devices": ["/dev/input/event0"],
-}
 
 
 def write_config(tmp_path: Path, **overrides: object) -> Path:
-    data = dict(BASE_CONFIG)
+    data: dict[str, object] = {
+        "mqtt_host": "broker.local",
+        "base_topic": "evmqtt/cli",
+        "state_file": str(tmp_path / "state.json"),
+        "rescan_interval": 0,
+    }
     data.update(overrides)
     path = tmp_path / "config.json"
     path.write_text(json.dumps(data))
     return path
 
 
-class RecordingApplication:
-    """Stand-in for Application that records the config it was built with."""
-
-    captured_config = None
-
-    def __init__(self, config, connect_timeout: float = 30.0) -> None:
-        RecordingApplication.captured_config = config
-        self.shutdown_requested = True
-
-    async def start(self) -> None:
-        pass
-
-    async def wait(self) -> None:
-        pass
-
-    async def stop(self) -> None:
-        pass
-
-    def _handle_signal(self, signum: int) -> None:
-        pass
+class SigtermWhenConnected(gateway_module.Gateway):
+    def _on_connected(self) -> None:
+        super()._on_connected()
+        os.kill(os.getpid(), signal.SIGTERM)
 
 
-class FastApplication(Application):
-    """Application with a short connect timeout, for CLI-level broker tests."""
-
-    def __init__(self, config) -> None:
-        super().__init__(config, connect_timeout=0.1)
-
-
-class SigtermAfterStart(Application):
-    """Application that sends itself SIGTERM once running."""
-
+class SigtermAfterStart(gateway_module.Gateway):
     async def start(self) -> None:
         await super().start()
         os.kill(os.getpid(), signal.SIGTERM)
 
 
-def test_list_devices_found_exits_zero(fake_evdev, capsys) -> None:
+def test_list_devices(fake_evdev, sysfs, capsys) -> None:
     fake_evdev.add(
         "/dev/input/event0", name="Kbd", capabilities=keyboard_capabilities()
     )
-    with pytest.raises(SystemExit) as exc_info:
-        main(["--list-devices"])
-    assert exc_info.value.code == 0
-    assert "Kbd" in capsys.readouterr().out
+    fake_evdev.add(
+        "/dev/input/event1", name="Virt", capabilities=keyboard_capabilities()
+    )
+    sysfs.add("event1", virtual=True)
+    assert main(["--list-devices"]) == 0
+    out = capsys.readouterr().out
+    assert "Found 2 input device(s)" in out
+    kbd, virt = [line for line in out.splitlines() if "/dev/input" in line]
+    assert '"Kbd"' in kbd and "[keyboard] (default)" in kbd
+    assert "[keyboard, virtual]" in virt and "(default)" not in virt
 
 
 def test_list_devices_none_found_exits_one(fake_evdev, capsys) -> None:
-    with pytest.raises(SystemExit) as exc_info:
-        main(["--list-devices"])
-    assert exc_info.value.code == 1
+    assert main(["--list-devices"]) == 1
 
 
-def test_bad_config_exits_one(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_bad_config_exits_one(tmp_path: Path, capsys) -> None:
+    assert main(["--config", str(write_config(tmp_path, mqtt_port=0))]) == 1
+    assert "Configuration error" in capsys.readouterr().err
+
+
+def test_missing_config_exits_one(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.chdir(tmp_path)
-    monkeypatch.delenv("EVMQTT_CONFIG", raising=False)
-    (tmp_path / "config.json").write_text(json.dumps({**BASE_CONFIG, "serverip": ""}))
     assert main([]) == 1
-
-
-def test_broker_connect_timeout_exits_one(
-    fake_evdev, fake_mqtt, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    fake_evdev.add(
-        "/dev/input/event0", name="Kbd", capabilities=keyboard_capabilities()
-    )
-    fake_mqtt.auto_connect = False
-    monkeypatch.setattr(main_module, "Application", FastApplication)
-    config_path = write_config(tmp_path)
-    assert main(["--config", str(config_path)]) == 1
-
-
-@pytest.mark.parametrize(
-    ("flags", "expected_level"),
-    [
-        ([], logging.WARNING),
-        (["-v"], logging.INFO),
-        (["-d"], logging.DEBUG),
-    ],
-)
-def test_log_level_flags(flags: list[str], expected_level: int) -> None:
-    root = logging.getLogger()
-    original_level = root.level
-    original_handlers = list(root.handlers)
-    try:
-        args = parse_args(flags)
-        setup_logging(verbose=args.verbose, debug=args.debug)
-        assert root.level == expected_level
-    finally:
-        root.handlers = original_handlers
-        root.setLevel(original_level)
-
-
-def test_auto_discover_flag_preserves_tls(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr(main_module, "Application", RecordingApplication)
-    config_path = write_config(
-        tmp_path,
-        auto_discover=False,
-        tls=True,
-        tls_ca="/etc/evmqtt/ca.pem",
-        port=8883,
-    )
-    exit_code = main(["--config", str(config_path), "--auto-discover"])
-    assert exit_code == 0
-    assert RecordingApplication.captured_config.tls is True
-    assert RecordingApplication.captured_config.tls_ca == "/etc/evmqtt/ca.pem"
-
-
-def test_all_monitors_dead_exits_nonzero(fake_evdev, fake_mqtt, tmp_path: Path) -> None:
-    device = fake_evdev.add(
-        "/dev/input/event0", name="Kbd", capabilities=keyboard_capabilities()
-    )
-    device.fail_grab()
-    config_path = write_config(tmp_path)
-    exit_code = main(["--config", str(config_path)])
-    assert exit_code != 0
-
-
-@pytest.mark.parametrize(
-    "overrides",
-    [
-        {"tls_ca": "/no/such/ca.pem", "port": 8883},
-    ],
-)
-def test_non_connection_startup_error_returns_exit_one(
-    fake_evdev, fake_mqtt, tmp_path: Path, overrides: dict[str, object]
-) -> None:
-    fake_evdev.add(
-        "/dev/input/event0", name="Kbd", capabilities=keyboard_capabilities()
-    )
-    config_path = write_config(tmp_path, **overrides)
-    assert main(["--config", str(config_path)]) == 1
-
-
-def test_sigterm_shuts_down_cleanly_and_exits_zero(
-    fake_evdev, fake_mqtt, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    device = fake_evdev.add(
-        "/dev/input/event0", name="Kbd", capabilities=keyboard_capabilities()
-    )
-    monkeypatch.setattr(main_module, "Application", SigtermAfterStart)
-    config_path = write_config(tmp_path)
-    assert main(["--config", str(config_path)]) == 0
-    assert device.grab_calls == 1
-    assert not device.grabbed
-    assert device.closed
-    assert fake_mqtt.last().connected is False
-
-
-def test_unplug_of_only_device_exits_one(
-    fake_evdev, fake_mqtt, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    device = fake_evdev.add(
-        "/dev/input/event0", name="Kbd", capabilities=keyboard_capabilities()
-    )
-
-    class UnplugAfterStart(Application):
-        async def start(self) -> None:
-            await super().start()
-            device.unplug()
-
-    monkeypatch.setattr(main_module, "Application", UnplugAfterStart)
-    config_path = write_config(tmp_path)
-    assert main(["--config", str(config_path)]) == 1
-    assert device.closed
 
 
 def test_missing_paho_exits_one_with_hint(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys
 ) -> None:
     monkeypatch.setitem(sys.modules, "paho.mqtt.client", None)
-    config_path = write_config(tmp_path)
-    assert main(["--config", str(config_path)]) == 1
+    assert main(["--config", str(write_config(tmp_path))]) == 1
     assert "evmqtt[mqtt]" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    ("flags", "expected"),
+    [
+        ([], None),
+        (["-v"], "info"),
+        (["-d"], "debug"),
+        (["--log-level", "error"], "error"),
+    ],
+)
+def test_log_level_flags(flags: list[str], expected: str | None) -> None:
+    assert cli_log_level(parse_args(flags)) == expected
+
+
+def test_config_log_level_applies(fake_evdev, fake_mqtt, tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(gateway_module, "Gateway", SigtermWhenConnected)
+    root = logging.getLogger()
+    handlers, level = list(root.handlers), root.level
+    try:
+        assert main(["-c", str(write_config(tmp_path, log_level="warning"))]) == 0
+        assert root.level == logging.WARNING
+        assert main(["-c", str(write_config(tmp_path, log_level="warning")), "-d"]) == 0
+        assert root.level == logging.DEBUG
+    finally:
+        root.handlers, root.level = handlers, level
+
+
+def test_sigterm_shuts_down_cleanly_and_exits_zero(
+    fake_evdev, fake_mqtt, tmp_path, monkeypatch, capsys
+) -> None:
+    device = fake_evdev.add(
+        "/dev/input/event0", name="Kbd", capabilities=keyboard_capabilities()
+    )
+    monkeypatch.setattr(gateway_module, "Gateway", SigtermWhenConnected)
+    config = write_config(tmp_path, serverip="old", port=1883)
+    assert main(["-c", str(config), "--auto-discover"]) == 0
+    assert device.grab_calls == 1
+    assert not device.grabbed
+    assert device.closed
+    client = fake_mqtt.last()
+    assert client.connected is False
+    assert fake_mqtt.retained["evmqtt/cli/status"] == "offline"
+    assert "'port' is deprecated" in capsys.readouterr().err
+
+
+def test_broker_down_keeps_running_until_signal(
+    fake_evdev, fake_mqtt, tmp_path, monkeypatch
+) -> None:
+    fake_mqtt.auto_connect = False
+    monkeypatch.setattr(gateway_module, "Gateway", SigtermAfterStart)
+    assert main(["-c", str(write_config(tmp_path))]) == 0
+    assert fake_mqtt.last().published == []
+
+
+def test_no_devices_keeps_running_until_signal(
+    fake_evdev, fake_mqtt, tmp_path, monkeypatch
+) -> None:
+    monkeypatch.setattr(gateway_module, "Gateway", SigtermWhenConnected)
+    assert main(["-c", str(write_config(tmp_path))]) == 0
+
+
+def test_missing_tls_ca_exits_one(fake_evdev, fake_mqtt, tmp_path, capsys) -> None:
+    config = write_config(tmp_path, mqtt_tls_ca=str(tmp_path / "missing.pem"))
+    assert main(["-c", str(config)]) == 1
+    assert "Configuration error" in capsys.readouterr().err
+
+
+def test_unexpected_fatal_error_exits_one(
+    fake_evdev, fake_mqtt, tmp_path, monkeypatch, capsys
+) -> None:
+    async def broken(config):
+        raise RuntimeError("boom")
+
+    class Broken(gateway_module.Gateway):
+        def __init__(self, config) -> None:
+            super().__init__(config, broker_resolver=broken)
+
+    monkeypatch.setattr(gateway_module, "Gateway", Broken)
+    assert main(["-c", str(write_config(tmp_path))]) == 1
+    assert "Fatal error" in capsys.readouterr().err

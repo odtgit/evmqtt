@@ -10,6 +10,7 @@ SupplementaryGroups=input
 ExecStart=/usr/bin/env evmqtt -c /etc/evmqtt/config.json
 Restart=always
 RestartSec=10
+StateDirectory=evmqtt
 
 [Install]
 WantedBy=multi-user.target

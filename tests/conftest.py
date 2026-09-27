@@ -11,7 +11,8 @@ import pytest
 
 import evmqtt.config as config_module
 import evmqtt.mqtt_client as mqtt_client_module
-from tests.fakes import FakeEvdevRegistry, make_fake_paho_class
+import evmqtt.sysinfo as sysinfo_module
+from tests.fakes import FakeEvdevRegistry, FakeSysfs, make_fake_paho_class
 
 ASYNC_TEST_TIMEOUT = 10.0
 
@@ -32,17 +33,29 @@ def isolated_ha_options_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
     """Point Config.load's HA options search at a tmp path, not /data/options.json."""
     fake_path = tmp_path / "options.json"
     monkeypatch.setattr(config_module, "HA_OPTIONS_PATH", fake_path)
+    monkeypatch.setattr(config_module, "HA_STATE_FILE", tmp_path / "addon-state.json")
+    for var in ("EVMQTT_CONFIG", "SUPERVISOR_TOKEN", "STATE_DIRECTORY"):
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "xdg-state"))
     return fake_path
 
 
+@pytest.fixture(autouse=True)
+def sysfs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> FakeSysfs:
+    """An empty fake /sys, so fake /dev/input paths never hit the real one."""
+    root = tmp_path / "sys"
+    root.mkdir()
+    monkeypatch.setattr(sysinfo_module, "SYSFS_ROOT", root)
+    return FakeSysfs(root)
+
+
 @pytest.fixture
-def fake_evdev(monkeypatch: pytest.MonkeyPatch) -> FakeEvdevRegistry:
+def fake_evdev(monkeypatch: pytest.MonkeyPatch):
     """Patch evdev.InputDevice / evdev.list_devices with an in-memory registry."""
     registry = FakeEvdevRegistry()
     monkeypatch.setattr(evdev, "InputDevice", registry.open)
     monkeypatch.setattr(evdev, "list_devices", registry.list_devices)
     yield registry
-    # Unblock any monitor threads left mid-read_loop so daemon threads exit.
     registry.close_all()
 
 
