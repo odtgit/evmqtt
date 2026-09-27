@@ -1,11 +1,23 @@
 # evmqtt - Linux Input Event to MQTT Gateway
 
+[![CI](https://github.com/odtgit/evmqtt/actions/workflows/ci.yml/badge.svg)](https://github.com/odtgit/evmqtt/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/evmqtt.svg)](https://pypi.org/project/evmqtt/)
+[![GHCR](https://img.shields.io/badge/GHCR-ghcr.io%2Fodtgit%2Fevmqtt-blue.svg)](https://github.com/odtgit/evmqtt/pkgs/container/evmqtt)
+[![HACS Custom](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/integration)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 Capture Linux input events (keyboards, IR remotes, gamepads) and publish them to an MQTT broker. Perfect for integrating hardware buttons and remote controls with Home Assistant.
 
 Based on the original [gist](https://gist.github.com/jamesbulpin/b940e7d81e2e65158f12e59b4d6a0c3c) by James Bulpin.
+
+Which install do you need?
+
+| Your setup | Install |
+|---|---|
+| Home Assistant OS or Supervised | [Add-on](#option-1-home-assistant-add-on-recommended) |
+| Home Assistant Container or Core | [HACS integration](#hacs-integration) |
+| Any other MQTT consumer, or no Home Assistant at all | [Docker](#option-2-docker-container), [systemd](#option-4-systemd-service) or [pip](#option-3-python-package) |
 
 ## Features
 
@@ -22,9 +34,9 @@ Based on the original [gist](https://gist.github.com/jamesbulpin/b940e7d81e2e651
 
 ### Option 1: Home Assistant Add-on (Recommended)
 
-The easiest way to use evmqtt with Home Assistant is as a Supervisor add-on.
-
-> **Note:** This is an add-on, not a HACS integration. Add-ons require direct hardware access and run as separate Docker containers, which HACS does not support. Install via the Supervisor Add-on Store instead.
+The easiest way to use evmqtt with Home Assistant OS or Supervised is as a
+Supervisor add-on. Uses the prebuilt image from `ghcr.io/odtgit/evmqtt`, no
+local build.
 
 #### Add Repository to Supervisor
 
