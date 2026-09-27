@@ -373,6 +373,129 @@ automation:
 Node-RED and other MQTT consumers subscribe to `<base>/+/event` for the JSON
 stream.
 
+## HACS integration
+
+Native Home Assistant integration for HA Container and Core, where add-ons
+are not available. No broker needed. It runs the same core as the daemon
+(`evmqtt` from PyPI, installed by HA from the manifest). Needs HA 2026.3 or
+newer.
+
+Install through HACS ([Option 2](#option-2-hacs-integration)), or copy
+`custom_components/evmqtt` into `<config>/custom_components/` and restart.
+
+### Device access: HA Container
+
+```yaml
+services:
+  homeassistant:
+    image: ghcr.io/home-assistant/home-assistant:stable
+    network_mode: host
+    volumes:
+      - ./config:/config
+      - /dev/input:/dev/input
+    device_cgroup_rules:
+      - "c 13:* rmw"
+```
+
+- `c 13:* rmw` allows every input device node (major 13), including ones
+  plugged in later. The read-write bind mount (no `:ro`) makes new nodes
+  appear inside the container.
+- `devices: [/dev/input/event3]` works for one fixed device but breaks on
+  hotplug and `eventN` renumbering.
+- The image runs as root. With `user:` set, add
+  `group_add: ["<gid>"]` using the host's input group id
+  (`getent group input | cut -d: -f3`).
+
+### Device access: HA Core (venv)
+
+```bash
+sudo usermod -aG input homeassistant
+sudo systemctl restart home-assistant@homeassistant
+```
+
+evdev 1.9 has no wheels on PyPI, so the first install builds it: the host
+needs a C compiler, Python headers and kernel headers (Debian:
+`build-essential python3-dev linux-libc-dev`). HA Container uses HA's
+prebuilt wheel.
+
+### Configuration
+
+**Settings** → **Devices & Services** → **Add Integration** → **evmqtt**.
+The form lists keyboard-like devices (no mice, power buttons or video bus).
+Tick the ones to enable. Every listed device gets entities, unticked ones
+start disabled. **Include virtual devices** adds uinput devices (keyd,
+kanata, ydotool). If nothing is readable the form says why:
+`/dev/input` not mapped, or no permission.
+
+**Configure** on the integration:
+
+| Option | Default | |
+|---|---|---|
+| Enabled devices | from setup | Grabbed devices |
+| Key states | press | Which of press/repeat/release fire events |
+| Rescan interval | 5 s | Hotplug scan, 0 disables |
+| Include virtual devices | off | |
+| Enable new devices | off | Grab devices first seen after setup |
+| MQTT mirror | off | Only shown when the MQTT integration is set up |
+| MQTT base topic | `evmqtt/<hostname>` | Same default as the daemon |
+
+Changing only the enabled devices applies live, anything else reloads the
+entry.
+
+### Entities
+
+One HA device per input device, keyed by the core's stable id; manufacturer
+and model from the USB descriptors, model id `vendor:product`.
+
+- `event.<device>_key`: device class `button`, event types from the key
+  states. Attributes `key`, `modifiers`, `state` (`PRESS`/`REPEAT`/`RELEASE`),
+  `device_id`, `device_name`, `device_path`. Modifier keys do not fire on
+  their own, they show up in `modifiers`.
+- `switch.<device>_enabled` (config): on grabs the device, so its keys reach
+  only HA. Off releases it. Stored in the entry options, survives restarts.
+- Unplugged: both entities unavailable, kept, back on replug. Devices that
+  are not plugged in can be deleted from their device page.
+- Newly seen devices get entities with the switch off. A new keyboard on the
+  HA host would otherwise stop typing locally. **Enable new devices** changes
+  that.
+
+```yaml
+automation:
+  - alias: "Remote: Ctrl+P toggles the lamp"
+    triggers:
+      - trigger: state
+        entity_id: event.ir_remote_key
+    conditions:
+      - condition: template
+        value_template: >
+          {{ trigger.to_state.attributes.event_type == 'press'
+             and trigger.to_state.attributes.key == 'KEY_P'
+             and 'KEY_LEFTCTRL' in trigger.to_state.attributes.modifiers }}
+    actions:
+      - action: light.toggle
+        target:
+          entity_id: light.lamp
+```
+
+### MQTT mirror
+
+Publishes each event to `<base>/<device id>/event` with the daemon's JSON
+payload (QoS 0, not retained), so flows built on the daemon keep working.
+No discovery: the entities are native.
+
+### Coexistence
+
+- Only one process can grab a device. With the add-on or daemon and this
+  integration on the same device, the second grab fails with `EBUSY`. The
+  integration logs one warning, marks the event entity unavailable and
+  retries on every rescan; the switch stays usable. Switch off reads the
+  device without grabbing. Use one of them per device.
+- HA's built-in `keyboard_remote` is YAML only, always grabs, and fires
+  `keyboard_remote_command_received` bus events with numeric key codes. This
+  integration adds a config flow, entities per device, stable ids, modifiers,
+  runtime grab on/off, hotplug of new devices and the MQTT mirror. Do not
+  point both at the same device.
+
 ## Upgrading from 1.x
 
 2.0 changes topics, entities, payloads and some config keys. Old entities
@@ -526,6 +649,18 @@ pytest -m "not broker and not uinput"
 pytest tests/ -v --cov=evmqtt --cov-report=html
 ```
 
+HACS integration tests (Python 3.14, own venv, fake devices only):
+
+```bash
+python3.14 -m venv .venv-ha
+.venv-ha/bin/pip install -r tests_ha/requirements.txt -e ".[mqtt]"
+cd tests_ha && ../.venv-ha/bin/pytest -q
+```
+
+`scripts/ha_integration_validate.py` runs the integration in a real HA
+container. Locally it only checks install and the config flow; CI adds a
+uinput remote (`--uinput`, root).
+
 ### Project Structure
 
 ```
@@ -542,6 +677,9 @@ evmqtt/
 │   ├── supervisor.py       # Add-on broker lookup
 │   └── sysinfo.py          # sysfs: virtual devices, vendor/model
 ├── tests/                  # Test suite
+├── custom_components/evmqtt/  # HACS integration
+├── tests_ha/               # HACS integration tests
+├── hacs.json               # HACS manifest
 ├── config.yaml             # HA add-on manifest
 ├── repository.yaml         # HA add-on repository manifest
 ├── Dockerfile              # Container build
