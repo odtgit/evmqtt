@@ -178,7 +178,7 @@ async def test_unplug_and_replug(
 
     back = fake_evdev.add(REMOTE, "Remote", keyboard_capabilities())
     async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=6))
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
     assert hass.states.get("event.remote_key").state != STATE_UNAVAILABLE
     assert hass.states.get("switch.remote_enabled").state == "on"
     assert back.grabbed
