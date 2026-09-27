@@ -29,6 +29,7 @@ Which install do you need?
 - Keeps running while the broker is down and reconnects with backoff
 - Home Assistant add-on that uses the Mosquitto add-on's credentials automatically
 - Docker, systemd and plain Python deployment
+- HACS integration for HA Container and Core: native entities, no broker, optional MQTT mirror
 
 ## Installation
 

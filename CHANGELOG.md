@@ -2,6 +2,14 @@
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Added
+
+- HACS integration (`custom_components/evmqtt`) for HA Container and Core:
+  config flow, native `event` and `switch` entities per device, hotplug,
+  optional MQTT mirror with the daemon's event payload.
+
 ## [2.0.0] - 2026-09-27
 
 Breaking release. See [Upgrading from 1.x](README.md#upgrading-from-1x)
