@@ -49,9 +49,29 @@ jobs:
           python-version: "3.12"
           cache: pip
       - run: sudo modprobe uinput || true
+      - name: Allow the runner user to open uinput and event nodes
+        run: |
+          printf '%s\n' \
+            'KERNEL=="uinput", MODE="0666"' \
+            'SUBSYSTEM=="input", KERNEL=="event*", MODE="0666"' \
+            | sudo tee /etc/udev/rules.d/99-evmqtt-ci.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger
       - run: sudo chmod 0666 /dev/uinput || true
       - run: pip install -e ".[dev]"
-      - run: pytest -q -m uinput
+      - name: Debug input device state
+        if: always()
+        run: |
+          ls -l /dev/uinput || true
+          ls -l /dev/input || true
+          udevadm info -q all -n /dev/uinput || true
+      - name: Run uinput tier (retry as root if permissions still block it)
+        run: |
+          if EVMQTT_REQUIRE_UINPUT=1 python -m pytest -q -m uinput; then
+            exit 0
+          fi
+          echo "::warning::uinput tier failed as the runner user, retrying as root"
+          sudo -E env "PATH=$PATH" EVMQTT_REQUIRE_UINPUT=1 python -m pytest -q -m uinput
 
   broker:
     runs-on: ubuntu-latest

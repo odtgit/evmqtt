@@ -8,10 +8,15 @@ select() on it on Linux, so a fake that models close() as "wakes the
 reader" can pass while the real thing hangs.
 
 Skipped unless the runner can both write to /dev/uinput and actually
-expose the resulting /dev/input/eventN node (some hosted CI containers
-allow the former without the latter - no udev/devtmpfs enumeration of
-input devices - in which case evdev.UInput.device is None). Run
-explicitly with `pytest -m uinput`.
+expose the resulting /dev/input/eventN node (some CI setups can open
+/dev/uinput but the eventN node comes up root:input 0660, unreadable by
+the runner user, so evdev.UInput.device is None). Run explicitly with
+`pytest -m uinput`.
+
+Set EVMQTT_REQUIRE_UINPUT=1 to turn that skip into a hard failure. CI
+sets this so a runner that is supposed to support uinput (module loaded,
+udev rules in place) fails loudly instead of silently skipping if it
+regresses; local runs without uinput are left alone and skip as usual.
 """
 
 from __future__ import annotations
@@ -39,7 +44,18 @@ UINPUT_NODE_WRITABLE = os.path.exists("/dev/uinput") and os.access(
     "/dev/uinput", os.W_OK
 )
 
+# CI sets this to make an unavailable/inaccessible uinput device a hard
+# failure instead of a skip, so a permissions regression on a runner that
+# is supposed to support uinput is caught rather than silently ignored.
+REQUIRE_UINPUT = os.environ.get("EVMQTT_REQUIRE_UINPUT") == "1"
+
 BASE_TOPIC = "homeassistant/sensor/evmqtt"
+
+
+def _skip_or_fail(reason: str) -> None:
+    if REQUIRE_UINPUT:
+        pytest.fail(reason)
+    pytest.skip(reason)
 
 
 def make_wrapper(fake_mqtt) -> MQTTClientWrapper:
@@ -94,7 +110,7 @@ def stop_and_join(monitor: InputMonitor) -> None:
 @pytest.fixture
 def virtual_keyboard() -> Iterator[UInput]:
     if not UINPUT_NODE_WRITABLE:
-        pytest.skip("/dev/uinput not writable")
+        _skip_or_fail("/dev/uinput not writable")
     capabilities = {
         ecodes.EV_KEY: sorted(
             {
@@ -108,10 +124,10 @@ def virtual_keyboard() -> Iterator[UInput]:
     ui = UInput(capabilities, name="evmqtt-test-keyboard")
     if ui.device is None:
         # /dev/uinput is writable but the runner never exposed a matching
-        # /dev/input/eventN node (no udev/devtmpfs enumeration of input
-        # devices in some hosted CI containers).
+        # /dev/input/eventN node the current user can open (e.g. it came
+        # up root:input 0660 and the runner user isn't in "input").
         ui.close()
-        pytest.skip("uinput device created but no /dev/input/eventN node is visible")
+        _skip_or_fail("uinput device created but no /dev/input/eventN node is visible")
     try:
         # Give the kernel a moment to register the new /dev/input/eventN node.
         time.sleep(0.1)
