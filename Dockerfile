@@ -8,7 +8,7 @@ WORKDIR /build
 COPY pyproject.toml ./
 COPY src/ src/
 
-RUN pip install --no-cache-dir --prefix="/install" .
+RUN pip install --no-cache-dir --prefix="/install" ".[mqtt]"
 
 # Final stage - Home Assistant Add-on or standalone
 FROM ${BUILD_FROM}
