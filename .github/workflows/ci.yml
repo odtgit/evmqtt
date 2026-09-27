@@ -46,7 +46,7 @@ jobs:
       - uses: actions/checkout@v5
 
       - name: Build standalone image
-        run: docker build --build-arg BUILD_FROM=python:3.12-alpine3.18 -t evmqtt:standalone .
+        run: docker build --build-arg BUILD_FROM=python:3.13-alpine3.24 -t evmqtt:standalone .
 
       - name: Smoke test standalone image
         run: |
@@ -65,12 +65,6 @@ jobs:
           docker run --rm evmqtt:ha-amd64 evmqtt --list-devices || status=$?
           test "$status" -eq 1
 
-      - name: Stage add-on manifest for linting
-        run: |
-          mkdir -p .addon-lint-stage/translations
-          cp config.yaml build.yaml .addon-lint-stage/
-          cp translations/en.yaml .addon-lint-stage/translations/
-
       - uses: frenck/action-app-linter@v2.21.1
         with:
-          path: "./.addon-lint-stage"
+          path: "."

@@ -52,7 +52,11 @@ Then restart Home Assistant, go to **Settings** → **Add-ons** → **evmqtt** a
 
 ```bash
 # Build the image (use standard Python base for standalone deployment)
-docker build --build-arg BUILD_FROM=python:3.12-alpine3.18 -t evmqtt .
+docker build --build-arg BUILD_FROM=python:3.13-alpine3.24 -t evmqtt .
+
+# Create your config from the template
+cp config.example.json config.json
+# Edit config.json with your settings
 
 # Run with access to input devices
 docker run -d \
@@ -63,7 +67,7 @@ docker run -d \
   evmqtt
 ```
 
-Or use Docker Compose:
+Or use Docker Compose (also expects a `config.json` created from `config.example.json` as above):
 
 ```bash
 docker-compose up -d
@@ -92,15 +96,19 @@ pip install .
 
 # Configure
 sudo mkdir -p /etc/evmqtt
-sudo cp config.json /etc/evmqtt/config.json
+sudo cp config.example.json /etc/evmqtt/config.json
+sudo chmod 644 /etc/evmqtt/config.json
 # Edit /etc/evmqtt/config.json with your settings
 
 # Install service
 sudo cp evmqtt.service /etc/systemd/system/
-# Edit the service file to set User/Group to match your install
 sudo systemctl daemon-reload
 sudo systemctl enable --now evmqtt
 ```
+
+`evmqtt.service` runs as a systemd `DynamicUser` in the `input` group, so
+`/etc/evmqtt/config.json` must stay world-readable (mode 644) for the
+service to read it.
 
 ## Configuration
 
@@ -137,7 +145,7 @@ Example: A device named "gpio_ir_recv" will get:
 
 ### JSON Configuration
 
-For standalone deployment, create a `config.json` file:
+For standalone deployment, copy `config.example.json` to `config.json` and edit it:
 
 **Auto-discovery mode (recommended):**
 ```json
