@@ -40,6 +40,8 @@ class Config:
     auto_discover: bool = False
     enabled_devices: list[str] = field(default_factory=list)
     filter_keys_only: bool = True
+    tls: bool = False
+    tls_ca: str = ""
 
     def __post_init__(self) -> None:
         """Validate configuration after initialization."""
@@ -69,11 +71,15 @@ class Config:
             KeyError: If required fields are missing.
             ValueError: If field values are invalid.
         """
+        tls=data.get("tls", False)
+        tls_ca=data.get("tls_ca", "")
         return cls(
             serverip=data["serverip"],
-            port=data["port"],
-            username=data["username"],
-            password=data["password"],
+            port=data.get("port", 8883 if tls or tls_ca else 1883),
+            username=data.get("username", ""),
+            password=data.get("password", ""),
+            tls=tls,
+            tls_ca=tls_ca,
             name=data["name"],
             topic=data["topic"],
             devices=data.get("devices", []),
@@ -95,11 +101,15 @@ class Config:
             Config instance with validated values.
         """
         # HA add-on uses mqtt_host instead of serverip, etc.
+        tls=options.get("mqtt_tls", options.get("tls", False)),
+        tls_ca=options.get("mqtt_tls_ca", options.get("tls_ca", "")),
         return cls(
             serverip=options.get("mqtt_host", options.get("serverip", "")),
-            port=options.get("mqtt_port", options.get("port", 1883)),
+            port=options.get("mqtt_port", options.get("port", 8883 if tls or tls_ca else 1883)),
             username=options.get("mqtt_username", options.get("username", "")),
             password=options.get("mqtt_password", options.get("password", "")),
+            tls=tls,
+            tls_ca=tls_ca,
             name=options.get("name", "evmqtt"),
             topic=options.get("topic", "homeassistant/sensor/evmqtt"),
             devices=options.get("devices", []),

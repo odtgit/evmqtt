@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import ssl
 import threading
 from typing import TYPE_CHECKING, Any, Callable
 
@@ -212,6 +213,14 @@ class MQTTClientWrapper:
 
     def connect(self) -> None:
         """Connect to the MQTT broker and start the network loop."""
+
+        if self._config.tls or self._config.tls_ca:
+            if self._config.tls_ca:
+                self.client.tls_set(self._config.tls_ca)
+            else:
+                ssl_context = ssl.create_default_context(purpose=ssl.Purpose.SERVER_AUTH)
+                self.client.tls_set_context(ssl_context)
+            self.client.tls_insecure_set(False)
         self.client.connect(self._config.serverip, self._config.port)
         self.client.loop_start()
 
