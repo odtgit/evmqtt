@@ -25,15 +25,20 @@ from tests.fakes import (
 BASE_TOPIC = "homeassistant/sensor/evmqtt"
 
 
-def make_wrapper(fake_mqtt) -> MQTTClientWrapper:
-    config = Config.from_dict(
+def make_config(extra_entries: dict) -> Config:
+    return Config.from_dict(
         {
             "serverip": "broker.local",
             "name": "Gateway",
             "topic": BASE_TOPIC,
             "devices": ["/dev/input/event0"],
         }
+        | extra_entries
     )
+
+
+def make_wrapper(fake_mqtt) -> MQTTClientWrapper:
+    config = make_config({})
     return MQTTClientWrapper("test-client", config)
 
 
@@ -50,7 +55,7 @@ def make_monitor(
         device_path=path,
         base_topic=BASE_TOPIC,
         gateway_name="Gateway",
-        key_handler=KeyHandler(),
+        key_handler=KeyHandler.from_config(wrapper._config.keystates),
         device_slug=slug,
     )
     return device, monitor
@@ -300,3 +305,103 @@ def test_modifier_suffix_survives_autorepeat_hold(fake_evdev, fake_mqtt) -> None
         assert payload["key"] == "KEY_A_KEY_LEFTSHIFT"
     finally:
         stop_and_join(device, monitor)
+
+
+def test_keystate_default_is_press_only(fake_evdev, fake_mqtt) -> None:
+    wrapper = make_wrapper(fake_mqtt)
+    device, monitor = make_monitor(fake_evdev, wrapper)
+    monitor.start()
+    try:
+        device.push(press("KEY_A"))
+        device.push(hold("KEY_A"))
+        device.push(release("KEY_A"))
+        assert wait_for(lambda: published(wrapper.client, monitor.state_topic))
+        payload = last_payload(wrapper, monitor.state_topic)
+        assert payload["state"] == "PRESS"
+    finally:
+        stop_and_join(device, monitor)
+
+
+def test_keystate_is_limited_to_release_when_configured_to_release(
+    fake_evdev, fake_mqtt
+) -> None:
+    config = make_config({"keystates": ["RELEASE"]})
+    wrapper = MQTTClientWrapper("test-client", config)
+    device, monitor = make_monitor(fake_evdev, wrapper)
+    monitor.start()
+    try:
+        device.push(press("KEY_A"))
+        device.push(hold("KEY_A"))
+        device.push(release("KEY_A"))
+        assert wait_for(lambda: published(wrapper.client, monitor.state_topic))
+        payload = last_payload(wrapper, monitor.state_topic)
+        assert payload["state"] == "RELEASE"
+    finally:
+        stop_and_join(device, monitor)
+
+
+def test_keystates_are_reported_as_configured(fake_evdev, fake_mqtt) -> None:
+    config = make_config({"keystates": ["RELEASE", "PRESS", "REPEAT"]})
+    wrapper = MQTTClientWrapper("test-client", config)
+    device, monitor = make_monitor(fake_evdev, wrapper)
+    monitor.start()
+    try:
+        device.push(press("KEY_A"))
+        device.push(hold("KEY_A"))
+        device.push(release("KEY_A"))
+        assert wait_for(
+            lambda: len(published(wrapper.client, monitor.state_topic)) >= 3
+        )
+        assert monitor.is_alive()
+
+        expected = ["PRESS", "REPEAT", "RELEASE"]
+        payloads = [
+            json.loads(r.payload)
+            for r in published(wrapper.client, monitor.state_topic)
+        ]
+        assert [p["state"] for p in payloads] == expected
+    finally:
+        stop_and_join(device, monitor)
+
+
+def test_keystate_tolerates_numeric_value(fake_evdev, fake_mqtt) -> None:
+    config = make_config({"keystates": [0]})
+    wrapper = MQTTClientWrapper("test-client", config)
+    device, monitor = make_monitor(fake_evdev, wrapper)
+    monitor.start()
+    try:
+        device.push(press("KEY_A"))
+        device.push(hold("KEY_A"))
+        device.push(release("KEY_A"))
+        assert wait_for(lambda: published(wrapper.client, monitor.state_topic))
+        payload = last_payload(wrapper, monitor.state_topic)
+        assert payload["state"] == "RELEASE"
+    finally:
+        stop_and_join(device, monitor)
+
+
+def test_invalid_string_keystate_throws_value_error(fake_evdev, fake_mqtt) -> None:
+    try:
+        KeyHandler.from_config(["INVALID"])
+        raise AssertionError("Invalid string does not raise a ValueError")
+    except ValueError as e:
+        msg = str(e)
+        assert msg == "Invalid keystate: INVALID"
+
+
+def test_invalid_numeric_keystate_throws_value_error(fake_evdev, fake_mqtt) -> None:
+    try:
+        KeyHandler.from_config([3])
+        raise AssertionError("Invalid number does not raise a ValueError")
+    except ValueError as e:
+        msg = str(e)
+        assert msg == "Invalid keystate: 3"
+
+
+def test_invalid_keystate_type_throws_type_error(fake_evdev, fake_mqtt) -> None:
+    try:
+        KeyHandler.from_config([None])
+        raise AssertionError("Invalid type does not raise a TypeError")
+    except TypeError as e:
+        msg = str(e)
+        assert msg == "Invalid keystate type: NoneType"
