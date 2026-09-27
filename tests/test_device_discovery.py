@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from evmqtt.device_discovery import (
     DiscoveredDevice,
     discover_device_by_path,
@@ -33,7 +31,10 @@ class TestSlugify:
         """Test that special characters are removed."""
         assert slugify("Device (USB)") == "device-usb"
         assert slugify("Test@#$%Device") == "testdevice"
-        assert slugify("Logitech G502 HERO Gaming Mouse") == "logitech-g502-hero-gaming-mouse"
+        assert (
+            slugify("Logitech G502 HERO Gaming Mouse")
+            == "logitech-g502-hero-gaming-mouse"
+        )
 
     def test_slugify_multiple_spaces(self) -> None:
         """Test that multiple spaces become single hyphens."""

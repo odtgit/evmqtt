@@ -1,7 +1,5 @@
 """Tests for evmqtt.key_handler module."""
 
-import pytest
-
 from evmqtt.key_handler import KeyHandler
 
 

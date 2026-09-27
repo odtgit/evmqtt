@@ -63,16 +63,11 @@ class TestGenerateClientId:
         assert parts[-1].isdigit()
 
     def test_client_id_uniqueness(self) -> None:
-        """Test that client IDs are unique."""
-        import time
-
-        id1 = generate_client_id()
-        time.sleep(0.01)  # Small delay to ensure different timestamp
-        id2 = generate_client_id()
-
-        # IDs should be different (unless generated in same second)
-        # This test may occasionally fail if both are generated in the same second
-        # but that's acceptable for a unit test
+        """Test that client IDs differ across timestamps."""
+        with patch("evmqtt.__main__.time", side_effect=[1000.0, 1001.0]):
+            id1 = generate_client_id()
+            id2 = generate_client_id()
+        assert id1 != id2
 
 
 class TestParseArgs:

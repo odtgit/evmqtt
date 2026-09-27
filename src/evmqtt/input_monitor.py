@@ -5,14 +5,14 @@ from __future__ import annotations
 import json
 import logging
 import threading
-from typing import TYPE_CHECKING, Callable
+from collections.abc import Callable
+from typing import TYPE_CHECKING
 
 import evdev
 
 from evmqtt.key_handler import KeyHandler
 
 if TYPE_CHECKING:
-    from evmqtt.device_discovery import DiscoveredDevice
     from evmqtt.mqtt_client import MQTTClientWrapper
 
 logger = logging.getLogger(__name__)
@@ -192,7 +192,9 @@ class InputMonitor(threading.Thread):
         """Publish the current switch state to MQTT."""
         state = "ON" if self._enabled else "OFF"
         self._mqtt_client.publish(self.switch_state_topic, state, retain=True)
-        logger.debug("Published switch state '%s' to '%s'", state, self.switch_state_topic)
+        logger.debug(
+            "Published switch state '%s' to '%s'", state, self.switch_state_topic
+        )
 
     def handle_switch_command(self, payload: str) -> None:
         """Handle a switch command from MQTT.

@@ -5,7 +5,8 @@ from __future__ import annotations
 import logging
 import ssl
 import threading
-from typing import TYPE_CHECKING, Any, Callable
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any
 
 import paho.mqtt.client as mqtt
 
@@ -165,9 +166,7 @@ class MQTTClientWrapper:
                     try:
                         callback(topic, payload)
                     except Exception as e:
-                        logger.error(
-                            "Error in message callback for '%s': %s", topic, e
-                        )
+                        logger.error("Error in message callback for '%s': %s", topic, e)
                     break
 
     @staticmethod
@@ -218,7 +217,9 @@ class MQTTClientWrapper:
             if self._config.tls_ca:
                 self.client.tls_set(self._config.tls_ca)
             else:
-                ssl_context = ssl.create_default_context(purpose=ssl.Purpose.SERVER_AUTH)
+                ssl_context = ssl.create_default_context(
+                    purpose=ssl.Purpose.SERVER_AUTH
+                )
                 self.client.tls_set_context(ssl_context)
             self.client.tls_insecure_set(False)
         self.client.connect(self._config.serverip, self._config.port)

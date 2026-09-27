@@ -36,14 +36,10 @@ class TestMQTTClientWrapper:
 
         assert wrapper.client_id == "test_client_id"
         mock_mqtt_client.assert_called_once()
-        wrapper.client.username_pw_set.assert_called_once_with(
-            "test_user", "test_pass"
-        )
+        wrapper.client.username_pw_set.assert_called_once_with("test_user", "test_pass")
 
     @patch("evmqtt.mqtt_client.mqtt.Client")
-    def test_connect(
-        self, mock_mqtt_client: MagicMock, mock_config: Config
-    ) -> None:
+    def test_connect(self, mock_mqtt_client: MagicMock, mock_config: Config) -> None:
         """Test connecting to MQTT broker."""
         wrapper = MQTTClientWrapper("test_client_id", mock_config)
         wrapper.connect()
@@ -52,9 +48,7 @@ class TestMQTTClientWrapper:
         wrapper.client.loop_start.assert_called_once()
 
     @patch("evmqtt.mqtt_client.mqtt.Client")
-    def test_disconnect(
-        self, mock_mqtt_client: MagicMock, mock_config: Config
-    ) -> None:
+    def test_disconnect(self, mock_mqtt_client: MagicMock, mock_config: Config) -> None:
         """Test disconnecting from MQTT broker."""
         wrapper = MQTTClientWrapper("test_client_id", mock_config)
         wrapper.disconnect()
@@ -63,9 +57,7 @@ class TestMQTTClientWrapper:
         wrapper.client.disconnect.assert_called_once()
 
     @patch("evmqtt.mqtt_client.mqtt.Client")
-    def test_publish(
-        self, mock_mqtt_client: MagicMock, mock_config: Config
-    ) -> None:
+    def test_publish(self, mock_mqtt_client: MagicMock, mock_config: Config) -> None:
         """Test publishing messages."""
         wrapper = MQTTClientWrapper("test_client_id", mock_config)
         wrapper.publish("test/topic", '{"key": "value"}', qos=1, retain=True)
@@ -126,9 +118,7 @@ class TestMQTTClientWrapper:
         mock_reason_code.is_failure = False
         mock_flags = MagicMock()
 
-        wrapper._on_connect(
-            wrapper.client, None, mock_flags, mock_reason_code, None
-        )
+        wrapper._on_connect(wrapper.client, None, mock_flags, mock_reason_code, None)
 
         assert len(callback_called) == 1
         assert wrapper.is_connected is True
@@ -145,9 +135,7 @@ class TestMQTTClientWrapper:
         mock_reason_code.is_failure = True
         mock_flags = MagicMock()
 
-        wrapper._on_connect(
-            wrapper.client, None, mock_flags, mock_reason_code, None
-        )
+        wrapper._on_connect(wrapper.client, None, mock_flags, mock_reason_code, None)
 
         assert wrapper.is_connected is False
 
@@ -173,9 +161,7 @@ class TestMQTTClientWrapper:
         assert wrapper.is_connected is True
 
         # Then simulate disconnection
-        wrapper._on_disconnect(
-            wrapper.client, None, mock_flags, mock_reason_code, None
-        )
+        wrapper._on_disconnect(wrapper.client, None, mock_flags, mock_reason_code, None)
 
         assert len(callback_called) == 1
         assert wrapper.is_connected is False
