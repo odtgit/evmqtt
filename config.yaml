@@ -41,7 +41,7 @@ schema:
   mqtt_username: str?
   mqtt_password: password?
   mqtt_tls: bool
-  mqtt_tls_ca: str
+  mqtt_tls_ca: str?
   name: str
   topic: str
   auto_discover: bool

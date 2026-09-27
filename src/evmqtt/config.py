@@ -71,8 +71,8 @@ class Config:
             KeyError: If required fields are missing.
             ValueError: If field values are invalid.
         """
-        tls=data.get("tls", False)
-        tls_ca=data.get("tls_ca", "")
+        tls = data.get("tls", False)
+        tls_ca = data.get("tls_ca", "")
         return cls(
             serverip=data["serverip"],
             port=data.get("port", 8883 if tls or tls_ca else 1883),
@@ -101,8 +101,8 @@ class Config:
             Config instance with validated values.
         """
         # HA add-on uses mqtt_host instead of serverip, etc.
-        tls=options.get("mqtt_tls", options.get("tls", False)),
-        tls_ca=options.get("mqtt_tls_ca", options.get("tls_ca", "")),
+        tls = options.get("mqtt_tls", options.get("tls", False))
+        tls_ca = options.get("mqtt_tls_ca", options.get("tls_ca", ""))
         return cls(
             serverip=options.get("mqtt_host", options.get("serverip", "")),
             port=options.get("mqtt_port", options.get("port", 8883 if tls or tls_ca else 1883)),

@@ -206,6 +206,8 @@ When running in a container, add a volume for the custom CA certificate:
 
 When TLS is enabled, the default MQTT port is 8883, and the `port` key may be omitted.
 
+For the Home Assistant add-on, set `mqtt_tls` / `mqtt_tls_ca` and change `mqtt_port` to 8883 (the add-on default is 1883).
+
 ### Finding Input Devices
 
 List available input devices:
