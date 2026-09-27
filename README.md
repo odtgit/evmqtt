@@ -52,14 +52,14 @@ Then restart Home Assistant, go to **Settings** → **Add-ons** → **evmqtt** a
 
 ```bash
 # Build the image (use standard Python base for standalone deployment)
-docker build --build-arg BUILD_FROM=python:3.11-alpine -t evmqtt .
+docker build --build-arg BUILD_FROM=python:3.12-alpine3.18 -t evmqtt .
 
 # Run with access to input devices
 docker run -d \
   --name evmqtt \
   --network host \
   --device=/dev/input/event3 \
-  -v $(pwd)/config.json:/app/config.json \
+  -v $(pwd)/config.json:/data/config.json \
   evmqtt
 ```
 
@@ -85,21 +85,21 @@ evmqtt -c config.json -v
 ### Option 4: Systemd Service
 
 ```bash
-# Install dependencies
-sudo apt install python3-pip
-pip3 install paho-mqtt evdev
-
-# Clone and configure
+# Clone and install the package
 git clone https://github.com/odtgit/evmqtt
 cd evmqtt
-cp config.json config.local.json
-# Edit config.local.json with your settings
+pip install .
+
+# Configure
+sudo mkdir -p /etc/evmqtt
+sudo cp config.json /etc/evmqtt/config.json
+# Edit /etc/evmqtt/config.json with your settings
 
 # Install service
 sudo cp evmqtt.service /etc/systemd/system/
-# Edit the service file to set correct paths and user
-sudo systemctl enable evmqtt
-sudo systemctl start evmqtt
+# Edit the service file to set User/Group to match your install
+sudo systemctl daemon-reload
+sudo systemctl enable --now evmqtt
 ```
 
 ## Configuration
@@ -330,9 +330,7 @@ The device will stop publishing events until re-enabled.
 
 ### Node-RED Integration
 
-You can also process events in Node-RED by subscribing to the MQTT topic:
-
-![Node-RED Flow](nodered.png?raw=true)
+You can also process events in Node-RED by subscribing to the MQTT topic.
 
 ## Development
 
@@ -363,9 +361,11 @@ evmqtt/
 │   └── device_discovery.py # Auto-discovery logic
 ├── tests/                  # Test suite
 ├── config.yaml             # HA add-on manifest
+├── build.yaml              # HA add-on per-arch base images
+├── repository.yaml         # HA add-on repository manifest
 ├── Dockerfile              # Container build
 ├── pyproject.toml          # Python packaging
-└── run.sh                  # Add-on entrypoint
+└── run.sh                  # Container entrypoint
 ```
 
 ### Type Checking
