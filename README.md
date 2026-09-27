@@ -458,16 +458,29 @@ without MQTT (`pip install evmqtt`):
 
 ```python
 import asyncio
-from evmqtt.core import DeviceReader, KeyState, is_keyboard_like, list_devices, open_device
+from evmqtt.core import (
+    DeviceReader,
+    GrabMode,
+    KeyEvent,
+    KeyState,
+    is_keyboard_like,
+    list_devices,
+    open_device,
+)
 
-async def main():
+
+def on_event(event: KeyEvent) -> None:
+    if event.state is KeyState.PRESS:
+        print(event.key, event.modifiers)
+
+
+async def main() -> None:
     info = list_devices(is_keyboard_like)[0]
     reader = DeviceReader(
-        open_device(info.path),
-        lambda e: e.state is KeyState.PRESS and print(e.key, e.modifiers),
-        info=info,
+        open_device(info.path), on_event, info=info, grab=GrabMode.WHILE_ENABLED
     )
     await reader.run()
+
 
 asyncio.run(main())
 ```
@@ -477,6 +490,21 @@ hash of bus, vendor, product, name and either the serial (uniq, plus the
 interface number) when the device has a real one, so it survives a port
 move, or the port path (phys) when it does not. The MQTT daemon keys its
 topics and Home Assistant ids on it.
+
+`DeviceWatcher` runs the same scan on an interval and reports added/removed
+devices, for hotplug without an event loop of your own:
+
+```python
+from evmqtt.core import DeviceWatcher
+
+watcher = DeviceWatcher(
+    on_added=lambda info: print("added", info.id),
+    on_removed=lambda info: print("removed", info.id),
+    predicate=is_keyboard_like,
+    interval=5.0,
+)
+asyncio.run(watcher.run())
+```
 
 ## Development
 
