@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import json
 
-import pytest
-
 from evmqtt.config import Config
 from evmqtt.input_monitor import InputMonitor
 from evmqtt.key_handler import KeyHandler
@@ -200,12 +198,6 @@ def test_stop_takes_effect_on_next_queued_event(fake_evdev, fake_mqtt) -> None:
         device.unplug()
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="bug: format_keycode chokes on tuple keycodes from aliased keys "
-    "(e.g. KEY_MUTE -> ('KEY_MIN_INTERESTING', 'KEY_MUTE')), killing the monitor thread",
-)
-@pytest.mark.filterwarnings("ignore::pytest.PytestUnhandledThreadExceptionWarning")
 def test_multi_name_keycode_publishes_and_keeps_running(fake_evdev, fake_mqtt) -> None:
     wrapper = make_wrapper(fake_mqtt)
     device, monitor = make_monitor(fake_evdev, wrapper)
@@ -227,11 +219,64 @@ def test_multi_name_keycode_publishes_and_keeps_running(fake_evdev, fake_mqtt) -
         stop_and_join(device, monitor)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="bug: InputMonitor.stop() only sets a flag; read_loop blocks forever "
-    "until the device is closed/unplugged",
-)
+def test_aliased_button_keycode_publishes(fake_evdev, fake_mqtt) -> None:
+    """BTN_LEFT -> ('BTN_LEFT', 'BTN_MOUSE') is a second real-world tuple alias."""
+    wrapper = make_wrapper(fake_mqtt)
+    device, monitor = make_monitor(fake_evdev, wrapper)
+    monitor.start()
+    try:
+        device.push(press("BTN_LEFT"))
+        assert wait_for(lambda: published(wrapper.client, monitor.state_topic))
+        payload = last_payload(wrapper, monitor.state_topic)
+        assert "BTN_LEFT" in payload["key"]
+        assert monitor.is_alive()
+    finally:
+        stop_and_join(device, monitor)
+
+
+def test_unexpected_exception_in_event_handling_logs_and_continues(
+    fake_evdev, fake_mqtt
+) -> None:
+    """A bug in per-event handling must not kill the monitor thread."""
+
+    class BoomOnB(KeyHandler):
+        def should_publish(self, keycode, keystate):
+            primary = keycode[0] if isinstance(keycode, (list, tuple)) else keycode
+            if primary == "KEY_B":
+                raise RuntimeError("boom")
+            return super().should_publish(keycode, keystate)
+
+    wrapper = make_wrapper(fake_mqtt)
+    device = fake_evdev.add(
+        "/dev/input/event0", name="Test Keyboard", capabilities=keyboard_capabilities()
+    )
+    monitor = InputMonitor(
+        mqtt_client=wrapper,
+        device_path="/dev/input/event0",
+        base_topic=BASE_TOPIC,
+        gateway_name="Gateway",
+        key_handler=BoomOnB(),
+        device_slug="test-kb",
+    )
+    monitor.start()
+    try:
+        device.push(press("KEY_A"))
+        assert wait_for(lambda: published(wrapper.client, monitor.state_topic))
+        device.push(press("KEY_B"))
+        device.push(press("KEY_C"))
+        assert wait_for(
+            lambda: len(published(wrapper.client, monitor.state_topic)) >= 2
+        )
+        assert monitor.is_alive()
+        payloads = [
+            json.loads(r.payload)
+            for r in published(wrapper.client, monitor.state_topic)
+        ]
+        assert all(p["key"] != "KEY_B" for p in payloads)
+    finally:
+        stop_and_join(device, monitor)
+
+
 def test_stop_returns_quickly_with_idle_device(fake_evdev, fake_mqtt) -> None:
     wrapper = make_wrapper(fake_mqtt)
     device, monitor = make_monitor(fake_evdev, wrapper)
@@ -242,11 +287,6 @@ def test_stop_returns_quickly_with_idle_device(fake_evdev, fake_mqtt) -> None:
     assert not device.grabbed
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="bug: modifier autorepeat (keystate=2) is not counted as active, "
-    "dropping the suffix while a key is held",
-)
 def test_modifier_suffix_survives_autorepeat_hold(fake_evdev, fake_mqtt) -> None:
     wrapper = make_wrapper(fake_mqtt)
     device, monitor = make_monitor(fake_evdev, wrapper)

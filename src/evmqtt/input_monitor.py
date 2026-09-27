@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 
 import evdev
 
+import evmqtt
 from evmqtt.key_handler import KeyHandler
 
 if TYPE_CHECKING:
@@ -153,7 +154,7 @@ class InputMonitor(threading.Thread):
                 "name": self.device.name,
                 "manufacturer": "evmqtt",
                 "model": "Input Device",
-                "sw_version": "1.0.0",
+                "sw_version": evmqtt.__version__,
             },
         }
         config_json = json.dumps(config)
@@ -179,7 +180,7 @@ class InputMonitor(threading.Thread):
                 "name": self.device.name,
                 "manufacturer": "evmqtt",
                 "model": "Input Device",
-                "sw_version": "1.0.0",
+                "sw_version": evmqtt.__version__,
             },
         }
         config_json = json.dumps(config)
@@ -234,7 +235,12 @@ class InputMonitor(threading.Thread):
 
                 # Only handle events if enabled
                 if self.enabled:
-                    self._handle_key_event(event)
+                    try:
+                        self._handle_key_event(event)
+                    except Exception:
+                        logger.exception(
+                            "Error handling event on '%s'", self.device.path
+                        )
 
         except OSError as e:
             if not self._stop_event.is_set():
@@ -256,7 +262,7 @@ class InputMonitor(threading.Thread):
         keystate = key_event.keystate
 
         # Update modifier key state
-        primary_key = keycode[0] if isinstance(keycode, list) else keycode
+        primary_key = keycode[0] if isinstance(keycode, (list, tuple)) else keycode
         self._key_handler.update_modifier_state(primary_key, keystate)
 
         # Check if this event should be published
@@ -278,18 +284,17 @@ class InputMonitor(threading.Thread):
         logger.debug("Published: %s", message_json)
 
     def stop(self) -> None:
-        """Signal the monitor to stop."""
+        """Signal the monitor to stop.
+
+        Closes the device fd so a blocked read_loop() wakes up with an
+        OSError instead of waiting forever for the next event.
+        """
         self._stop_event.set()
         logger.info("Stopping monitor for '%s'", self.device.path)
-
-    def cleanup_autodiscovery(self) -> None:
-        """Remove autodiscovery configurations from MQTT.
-
-        This publishes empty payloads to remove the entities from HA.
-        """
-        self._mqtt_client.publish(self.config_topic, "", retain=True)
-        self._mqtt_client.publish(self.switch_config_topic, "", retain=True)
-        logger.debug("Removed autodiscovery configs for '%s'", self.device.name)
+        try:
+            self.device.close()
+        except OSError:
+            pass
 
 
 def list_available_devices() -> list[dict[str, str]]:
