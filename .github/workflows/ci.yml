@@ -44,4 +44,33 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - run: docker build --build-arg BUILD_FROM=python:3.11-alpine -t evmqtt:ci .
+
+      - name: Build standalone image
+        run: docker build --build-arg BUILD_FROM=python:3.12-alpine3.18 -t evmqtt:standalone .
+
+      - name: Smoke test standalone image
+        run: |
+          docker run --rm evmqtt:standalone evmqtt --help
+          status=0
+          docker run --rm evmqtt:standalone evmqtt --list-devices || status=$?
+          test "$status" -eq 1
+
+      - name: Build Home Assistant add-on image (amd64)
+        run: docker build -t evmqtt:ha-amd64 .
+
+      - name: Smoke test Home Assistant add-on image
+        run: |
+          docker run --rm evmqtt:ha-amd64 evmqtt --help
+          status=0
+          docker run --rm evmqtt:ha-amd64 evmqtt --list-devices || status=$?
+          test "$status" -eq 1
+
+      - name: Stage add-on manifest for linting
+        run: |
+          mkdir -p /tmp/addon-lint/translations
+          cp config.yaml build.yaml /tmp/addon-lint/
+          cp translations/en.yaml /tmp/addon-lint/translations/
+
+      - uses: frenck/action-app-linter@v2.21.1
+        with:
+          path: /tmp/addon-lint
