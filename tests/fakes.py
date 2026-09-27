@@ -8,6 +8,7 @@ naturally instead of being mocked away.
 from __future__ import annotations
 
 import errno
+import os
 import queue
 import socket
 import time
@@ -22,12 +23,18 @@ from paho.mqtt.client import ConnectFlags, DisconnectFlags, MQTTMessage
 from paho.mqtt.packettypes import PacketTypes
 from paho.mqtt.reasoncodes import ReasonCode
 
-_UNPLUG = object()
-_CLOSE = object()
-
 
 class FakeInputDevice:
-    """Stand-in for evdev.InputDevice backed by a queue of events."""
+    """Stand-in for evdev.InputDevice backed by a real pipe fd and a queue.
+
+    .fd is a real, selectable file descriptor (the read end of a pipe) so
+    InputMonitor's select()-based read loop behaves the same way it does
+    against a real device. push()/unplug() write a byte to make the fd
+    readable; read() drains the queue (or raises the queued OSError for
+    unplug). close() only releases the fds -- on Linux, closing an fd does
+    NOT wake another thread blocked in select() on it, so close() must not
+    (and does not) simulate a wakeup here.
+    """
 
     def __init__(
         self,
@@ -42,6 +49,8 @@ class FakeInputDevice:
         self.grabbed = False
         self.closed = False
         self.grab_error: OSError | None = None
+        self._pipe_r, self._pipe_w = os.pipe()
+        self.fd = self._pipe_r
 
     # -- evdev.InputDevice surface -----------------------------------
     def capabilities(
@@ -58,31 +67,67 @@ class FakeInputDevice:
         self.grabbed = False
 
     def close(self) -> None:
+        """Release the fds. Does not wake a thread blocked in select()."""
+        if self.closed:
+            return
         self.closed = True
-        self._queue.put(_CLOSE)
+        for fd in (self._pipe_r, self._pipe_w):
+            try:
+                os.close(fd)
+            except OSError:
+                pass
 
-    def read_loop(self):
+    def read(self) -> list[evdev.InputEvent]:
+        """Mimic evdev.InputDevice.read(): drain queued events or raise."""
+        try:
+            os.read(self._pipe_r, 4096)
+        except OSError:
+            pass
+
+        events: list[evdev.InputEvent] = []
+        pending_error: OSError | None = None
         while True:
-            item = self._queue.get()
-            if item is _UNPLUG:
-                raise OSError(errno.ENODEV, "No such device")
-            if item is _CLOSE:
-                raise OSError(errno.EBADF, "Bad file descriptor")
-            yield item
+            try:
+                item = self._queue.get_nowait()
+            except queue.Empty:
+                break
+            if isinstance(item, OSError):
+                pending_error = item
+                break
+            events.append(item)
+
+        if pending_error is not None:
+            if events:
+                # Deliver what we already have; raise on the next read().
+                self._queue.put(pending_error)
+            else:
+                raise pending_error
+
+        if not events:
+            raise BlockingIOError()
+        return events
 
     # -- test helpers --------------------------------------------------
     def push(self, event: evdev.InputEvent) -> None:
         self._queue.put(event)
+        self._wake()
 
     def push_all(self, events: list[evdev.InputEvent]) -> None:
         for event in events:
-            self._queue.put(event)
+            self.push(event)
 
     def unplug(self) -> None:
-        self._queue.put(_UNPLUG)
+        self._queue.put(OSError(errno.ENODEV, "No such device"))
+        self._wake()
 
     def fail_grab(self, exc: OSError | None = None) -> None:
         self.grab_error = exc or OSError(errno.EACCES, "Permission denied")
+
+    def _wake(self) -> None:
+        try:
+            os.write(self._pipe_w, b"x")
+        except OSError:
+            pass
 
 
 class FakeEvdevRegistry:
@@ -245,6 +290,9 @@ class FakePahoClient:
     def username_pw_set(self, username: str, password: str | None = None) -> None:
         self.username = username
         self.password = password
+
+    def enable_logger(self, logger: Any = None) -> None:
+        pass
 
     def tls_set(self, ca_certs: str | None = None, **kwargs: Any) -> None:
         if ca_certs and not Path(ca_certs).is_file():

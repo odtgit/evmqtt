@@ -54,7 +54,7 @@ class KeyHandler:
             Sorted list of modifier key codes that are currently pressed.
         """
         with self._lock:
-            return sorted(key for key, state in self._key_state.items() if state == 1)
+            return sorted(key for key, state in self._key_state.items() if state != 0)
 
     def get_modifier_suffix(self) -> str:
         """Get a string suffix representing active modifiers.
@@ -90,14 +90,18 @@ class KeyHandler:
         """
         return keycode in self.ignored_keys
 
-    def should_publish(self, keycode: str | list[str], keystate: int) -> bool:
+    def should_publish(
+        self, keycode: str | list[str] | tuple[str, ...], keystate: int
+    ) -> bool:
         """Determine if a key event should be published.
 
         Only key press events (keystate=1) for non-modifier, non-ignored
         keys should be published.
 
         Args:
-            keycode: The key code (string or list of strings).
+            keycode: The key code. evdev.categorize() returns a str for a
+                single-name key, or a list/tuple of str for an aliased key
+                (e.g. KEY_MUTE -> ('KEY_MIN_INTERESTING', 'KEY_MUTE')).
             keystate: The key state (1 = pressed, 0 = released).
 
         Returns:
@@ -106,24 +110,24 @@ class KeyHandler:
         if keystate != 1:  # Only publish key press, not release or repeat
             return False
 
-        # Handle case where keycode is a list (multiple keys reported)
-        primary_key = keycode[0] if isinstance(keycode, list) else keycode
+        # Handle case where keycode is a list/tuple (multiple keys reported)
+        primary_key = keycode[0] if isinstance(keycode, (list, tuple)) else keycode
 
         return not self.is_modifier(primary_key) and not self.is_ignored(primary_key)
 
     @staticmethod
-    def format_keycode(keycode: str | list[str]) -> str:
+    def format_keycode(keycode: str | list[str] | tuple[str, ...]) -> str:
         """Format a key code for publishing.
 
         Handles cases where the input device reports multiple key codes
-        for a single key press.
+        for a single key press (as a list or, for aliased keys, a tuple).
 
         Args:
-            keycode: Single key code string or list of key codes.
+            keycode: Single key code string, or list/tuple of key codes.
 
         Returns:
             Formatted key code string.
         """
-        if isinstance(keycode, list):
+        if isinstance(keycode, (list, tuple)):
             return "|".join(keycode)
         return keycode

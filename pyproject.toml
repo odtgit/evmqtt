@@ -55,6 +55,7 @@ testpaths = ["tests"]
 pythonpath = ["src"]
 markers = [
     "broker: requires a real mosquitto broker on localhost",
+    "uinput: requires a writable /dev/uinput to create virtual input devices",
 ]
 
 [tool.mypy]
