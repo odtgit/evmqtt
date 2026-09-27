@@ -11,6 +11,8 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+HA_OPTIONS_PATH = Path("/data/options.json")
+
 
 @dataclass
 class Config:
@@ -143,16 +145,15 @@ class Config:
             KeyError: If required fields are missing.
             ValueError: If field values are invalid.
         """
-        ha_options_path = Path("/data/options.json")
         is_ha_addon = False
 
         if config_path is not None:
             path = Path(config_path)
         elif env_path := os.environ.get("EVMQTT_CONFIG"):
             path = Path(env_path)
-        elif ha_options_path.is_file():
+        elif HA_OPTIONS_PATH.is_file():
             # Running as Home Assistant add-on
-            path = ha_options_path
+            path = HA_OPTIONS_PATH
             is_ha_addon = True
         elif Path("config.local.json").is_file():
             path = Path("config.local.json")
