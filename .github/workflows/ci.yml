@@ -25,6 +25,21 @@ jobs:
       - run: ruff check src tests
       - run: ruff format --check src tests
 
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Core installs and imports without the mqtt extra
+        run: |
+          pip install -e .
+          python -c "import evmqtt.core, importlib.util as u; assert u.find_spec('paho') is None"
+      - run: pip install mypy
+      - run: mypy src/evmqtt/core
+
   test:
     runs-on: ubuntu-latest
     strategy:
@@ -37,7 +52,7 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
-      - run: pip install -e ".[dev]"
+      - run: pip install -e ".[mqtt,dev]"
       - run: pytest -q -m "not broker and not uinput" --cov=evmqtt --cov-report=term-missing --cov-fail-under=89
 
   uinput:
@@ -49,7 +64,7 @@ jobs:
           python-version: "3.12"
           cache: pip
       - run: sudo modprobe uinput
-      - run: pip install -e ".[dev]"
+      - run: pip install -e ".[mqtt,dev]"
       - run: sudo -E env "PATH=$PATH" EVMQTT_REQUIRE_UINPUT=1 python -m pytest -q -p no:cacheprovider -m uinput
 
   broker:
@@ -63,7 +78,7 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y mosquitto
       - run: sudo systemctl stop mosquitto || true
       - run: sudo systemctl disable mosquitto || true
-      - run: pip install -e ".[dev]"
+      - run: pip install -e ".[mqtt,dev]"
       - run: pytest -q -m broker
 
   docker:

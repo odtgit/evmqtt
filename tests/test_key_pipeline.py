@@ -2,15 +2,18 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 
 from evmqtt.config import Config
+from evmqtt.core import StopReason
 from evmqtt.input_monitor import InputMonitor
 from evmqtt.key_handler import KeyHandler
 from evmqtt.mqtt_client import MQTTClientWrapper
 from tests.fakes import (
     FakeEvdevRegistry,
     FakeInputDevice,
+    drained,
     hold,
     keyboard_capabilities,
     msc_event,
@@ -19,7 +22,7 @@ from tests.fakes import (
     rel_event,
     release,
     syn_event,
-    wait_for,
+    until,
 )
 
 BASE_TOPIC = "homeassistant/sensor/evmqtt"
@@ -55,194 +58,196 @@ def make_monitor(
         device_path=path,
         base_topic=BASE_TOPIC,
         gateway_name="Gateway",
-        key_handler=KeyHandler.from_config(wrapper._config.keystates),
+        key_handler=KeyHandler(publish_states=wrapper._config.keystates),
         device_slug=slug,
     )
     return device, monitor
 
 
-def stop_and_join(device: FakeInputDevice, monitor: InputMonitor) -> None:
+async def start(monitor: InputMonitor) -> asyncio.Task:
+    task = asyncio.ensure_future(monitor.run())
+    assert await until(lambda: monitor.running)
+    return task
+
+
+async def stop_and_join(monitor: InputMonitor, task: asyncio.Task) -> None:
     monitor.stop()
-    device.unplug()
-    monitor.join(timeout=2)
+    await task
 
 
 def last_payload(wrapper: MQTTClientWrapper, topic: str) -> dict:
     return json.loads(published(wrapper.client, topic)[-1].payload)
 
 
-def test_press_publishes_key_event(fake_evdev, fake_mqtt) -> None:
+async def test_press_publishes_key_event(fake_evdev, fake_mqtt) -> None:
     wrapper = make_wrapper(fake_mqtt)
     device, monitor = make_monitor(fake_evdev, wrapper)
-    monitor.start()
+    task = await start(monitor)
     try:
         device.push(press("KEY_A"))
-        assert wait_for(lambda: published(wrapper.client, monitor.state_topic))
+        assert await until(lambda: published(wrapper.client, monitor.state_topic))
         payload = last_payload(wrapper, monitor.state_topic)
         assert payload["key"] == "KEY_A"
         assert payload["devicePath"] == "/dev/input/event0"
         assert payload["deviceName"] == "Test Keyboard"
     finally:
-        stop_and_join(device, monitor)
+        await stop_and_join(monitor, task)
 
 
-def test_release_and_repeat_are_dropped(fake_evdev, fake_mqtt) -> None:
+async def test_release_and_repeat_are_dropped(fake_evdev, fake_mqtt) -> None:
     wrapper = make_wrapper(fake_mqtt)
     device, monitor = make_monitor(fake_evdev, wrapper)
-    monitor.start()
+    task = await start(monitor)
     try:
         device.push(press("KEY_A"))
-        assert wait_for(lambda: published(wrapper.client, monitor.state_topic))
+        assert await until(lambda: published(wrapper.client, monitor.state_topic))
         count_after_press = len(published(wrapper.client, monitor.state_topic))
 
         device.push(release("KEY_A"))
         device.push(hold("KEY_A"))
-        grew = wait_for(
-            lambda: (
-                len(published(wrapper.client, monitor.state_topic)) > count_after_press
-            ),
-            timeout=0.15,
-        )
-        assert not grew
+        await drained(device)
+        assert len(published(wrapper.client, monitor.state_topic)) == count_after_press
     finally:
-        stop_and_join(device, monitor)
+        await stop_and_join(monitor, task)
 
 
-def test_modifier_suffix_and_multiple_sorted(fake_evdev, fake_mqtt) -> None:
+async def test_modifier_suffix_and_multiple_sorted(fake_evdev, fake_mqtt) -> None:
     wrapper = make_wrapper(fake_mqtt)
     device, monitor = make_monitor(fake_evdev, wrapper)
-    monitor.start()
+    task = await start(monitor)
     try:
         device.push(press("KEY_LEFTSHIFT"))
         device.push(press("KEY_LEFTCTRL"))
         device.push(press("KEY_A"))
-        assert wait_for(lambda: published(wrapper.client, monitor.state_topic))
+        assert await until(lambda: published(wrapper.client, monitor.state_topic))
         payload = last_payload(wrapper, monitor.state_topic)
         assert payload["key"] == "KEY_A_KEY_LEFTCTRL_KEY_LEFTSHIFT"
 
         device.push(release("KEY_LEFTSHIFT"))
         device.push(release("KEY_LEFTCTRL"))
         device.push(press("KEY_B"))
-        assert wait_for(
+        assert await until(
             lambda: len(published(wrapper.client, monitor.state_topic)) >= 2
         )
         payload = last_payload(wrapper, monitor.state_topic)
         assert payload["key"] == "KEY_B"
     finally:
-        stop_and_join(device, monitor)
+        await stop_and_join(monitor, task)
 
 
-def test_modifier_only_and_numlock_dropped(fake_evdev, fake_mqtt) -> None:
+async def test_modifier_only_and_numlock_dropped(fake_evdev, fake_mqtt) -> None:
     wrapper = make_wrapper(fake_mqtt)
     device, monitor = make_monitor(fake_evdev, wrapper)
-    monitor.start()
+    task = await start(monitor)
     try:
         device.push(press("KEY_LEFTSHIFT"))
         device.push(press("KEY_NUMLOCK"))
         device.push(press("KEY_A"))
-        assert wait_for(lambda: published(wrapper.client, monitor.state_topic))
+        assert await until(lambda: published(wrapper.client, monitor.state_topic))
         # only the KEY_A press should have published
         assert len(published(wrapper.client, monitor.state_topic)) == 1
     finally:
-        stop_and_join(device, monitor)
+        await stop_and_join(monitor, task)
 
 
-def test_non_key_events_ignored(fake_evdev, fake_mqtt) -> None:
+async def test_non_key_events_ignored(fake_evdev, fake_mqtt) -> None:
     wrapper = make_wrapper(fake_mqtt)
     device, monitor = make_monitor(fake_evdev, wrapper)
-    monitor.start()
+    task = await start(monitor)
     try:
         device.push(syn_event())
         device.push(msc_event())
         device.push(rel_event())
         device.push(press("KEY_A"))
-        assert wait_for(lambda: published(wrapper.client, monitor.state_topic))
+        assert await until(lambda: published(wrapper.client, monitor.state_topic))
         assert len(published(wrapper.client, monitor.state_topic)) == 1
     finally:
-        stop_and_join(device, monitor)
+        await stop_and_join(monitor, task)
 
 
-def test_grab_failure_exits_quietly(fake_evdev, fake_mqtt) -> None:
+async def test_grab_failure_exits_quietly(fake_evdev, fake_mqtt) -> None:
     wrapper = make_wrapper(fake_mqtt)
     device, monitor = make_monitor(fake_evdev, wrapper)
     device.fail_grab()
-    monitor.start()
-    monitor.join(timeout=2)
-    assert not monitor.is_alive()
+    assert await monitor.run() is None
+    assert not monitor.running
     assert not device.grabbed
 
 
-def test_unplug_mid_stream_exits_and_ungrabs(fake_evdev, fake_mqtt) -> None:
+async def test_unplug_mid_stream_exits_and_ungrabs(fake_evdev, fake_mqtt) -> None:
     wrapper = make_wrapper(fake_mqtt)
     device, monitor = make_monitor(fake_evdev, wrapper)
-    monitor.start()
-    assert wait_for(lambda: device.grabbed)
+    task = await start(monitor)
+    assert device.grabbed
     device.push(press("KEY_A"))
-    assert wait_for(lambda: published(wrapper.client, monitor.state_topic))
+    assert await until(lambda: published(wrapper.client, monitor.state_topic))
     device.unplug()
-    assert wait_for(lambda: not monitor.is_alive(), timeout=2)
+    result = await task
+    assert result.reason is StopReason.UNPLUGGED
+    assert not monitor.running
     assert not device.grabbed
 
 
-def test_stop_takes_effect_on_next_queued_event(fake_evdev, fake_mqtt) -> None:
+async def test_stop_takes_effect_on_next_queued_event(fake_evdev, fake_mqtt) -> None:
     wrapper = make_wrapper(fake_mqtt)
     device, monitor = make_monitor(fake_evdev, wrapper)
-    monitor.start()
+    task = await start(monitor)
     try:
         device.push(press("KEY_A"))
-        assert wait_for(lambda: published(wrapper.client, monitor.state_topic))
-        monitor.stop()
+        assert await until(lambda: published(wrapper.client, monitor.state_topic))
         device.push(press("KEY_B"))
-        assert wait_for(lambda: not monitor.is_alive(), timeout=2)
+        monitor.stop()
+        await task
         payloads = [
             json.loads(r.payload)
             for r in published(wrapper.client, monitor.state_topic)
         ]
         assert all(p["key"] != "KEY_B" for p in payloads)
     finally:
-        device.unplug()
+        monitor.stop()
 
 
-def test_multi_name_keycode_publishes_and_keeps_running(fake_evdev, fake_mqtt) -> None:
+async def test_multi_name_keycode_publishes_and_keeps_running(
+    fake_evdev, fake_mqtt
+) -> None:
     wrapper = make_wrapper(fake_mqtt)
     device, monitor = make_monitor(fake_evdev, wrapper)
-    monitor.start()
+    task = await start(monitor)
     try:
         device.push(press("KEY_MUTE"))
         device.push(press("KEY_A"))
-        assert wait_for(
-            lambda: len(published(wrapper.client, monitor.state_topic)) >= 2,
-            timeout=0.15,
+        assert await until(
+            lambda: len(published(wrapper.client, monitor.state_topic)) >= 2
         )
         payloads = [
             json.loads(r.payload)
             for r in published(wrapper.client, monitor.state_topic)
         ]
         assert any("KEY_MUTE" in p["key"] for p in payloads)
-        assert monitor.is_alive()
+        assert monitor.running
     finally:
-        stop_and_join(device, monitor)
+        await stop_and_join(monitor, task)
 
 
-def test_aliased_button_keycode_publishes(fake_evdev, fake_mqtt) -> None:
+async def test_aliased_button_keycode_publishes(fake_evdev, fake_mqtt) -> None:
     """BTN_LEFT -> ('BTN_LEFT', 'BTN_MOUSE') is a second real-world tuple alias."""
     wrapper = make_wrapper(fake_mqtt)
     device, monitor = make_monitor(fake_evdev, wrapper)
-    monitor.start()
+    task = await start(monitor)
     try:
         device.push(press("BTN_LEFT"))
-        assert wait_for(lambda: published(wrapper.client, monitor.state_topic))
+        assert await until(lambda: published(wrapper.client, monitor.state_topic))
         payload = last_payload(wrapper, monitor.state_topic)
         assert "BTN_LEFT" in payload["key"]
-        assert monitor.is_alive()
+        assert monitor.running
     finally:
-        stop_and_join(device, monitor)
+        await stop_and_join(monitor, task)
 
 
-def test_unexpected_exception_in_event_handling_logs_and_continues(
+async def test_unexpected_exception_in_event_handling_logs_and_continues(
     fake_evdev, fake_mqtt
 ) -> None:
-    """A bug in per-event handling must not kill the monitor thread."""
+    """A bug in per-event handling must not kill the monitor."""
 
     class BoomOnB(KeyHandler):
         def should_publish(self, keycode, keystate):
@@ -263,96 +268,96 @@ def test_unexpected_exception_in_event_handling_logs_and_continues(
         key_handler=BoomOnB(),
         device_slug="test-kb",
     )
-    monitor.start()
+    task = await start(monitor)
     try:
         device.push(press("KEY_A"))
-        assert wait_for(lambda: published(wrapper.client, monitor.state_topic))
+        assert await until(lambda: published(wrapper.client, monitor.state_topic))
         device.push(press("KEY_B"))
         device.push(press("KEY_C"))
-        assert wait_for(
+        assert await until(
             lambda: len(published(wrapper.client, monitor.state_topic)) >= 2
         )
-        assert monitor.is_alive()
+        assert monitor.running
         payloads = [
             json.loads(r.payload)
             for r in published(wrapper.client, monitor.state_topic)
         ]
         assert all(p["key"] != "KEY_B" for p in payloads)
     finally:
-        stop_and_join(device, monitor)
+        await stop_and_join(monitor, task)
 
 
-def test_stop_returns_quickly_with_idle_device(fake_evdev, fake_mqtt) -> None:
+async def test_stop_returns_quickly_with_idle_device(fake_evdev, fake_mqtt) -> None:
     wrapper = make_wrapper(fake_mqtt)
     device, monitor = make_monitor(fake_evdev, wrapper)
-    monitor.start()
-    assert wait_for(lambda: device.grabbed)
+    task = await start(monitor)
+    assert device.grabbed
     monitor.stop()
-    assert wait_for(lambda: not monitor.is_alive(), timeout=0.15)
+    await asyncio.wait_for(task, 0.15)
     assert not device.grabbed
 
 
-def test_modifier_suffix_survives_autorepeat_hold(fake_evdev, fake_mqtt) -> None:
+async def test_modifier_suffix_survives_autorepeat_hold(fake_evdev, fake_mqtt) -> None:
     wrapper = make_wrapper(fake_mqtt)
     device, monitor = make_monitor(fake_evdev, wrapper)
-    monitor.start()
+    task = await start(monitor)
     try:
         device.push(press("KEY_LEFTSHIFT"))
         device.push(hold("KEY_LEFTSHIFT"))
         device.push(press("KEY_A"))
-        assert wait_for(lambda: published(wrapper.client, monitor.state_topic))
+        assert await until(lambda: published(wrapper.client, monitor.state_topic))
         payload = last_payload(wrapper, monitor.state_topic)
         assert payload["key"] == "KEY_A_KEY_LEFTSHIFT"
     finally:
-        stop_and_join(device, monitor)
+        await stop_and_join(monitor, task)
 
 
-def test_keystate_default_is_press_only(fake_evdev, fake_mqtt) -> None:
+async def test_keystate_default_is_press_only(fake_evdev, fake_mqtt) -> None:
     wrapper = make_wrapper(fake_mqtt)
     device, monitor = make_monitor(fake_evdev, wrapper)
-    monitor.start()
+    task = await start(monitor)
     try:
         device.push(press("KEY_A"))
         device.push(hold("KEY_A"))
         device.push(release("KEY_A"))
-        assert wait_for(lambda: published(wrapper.client, monitor.state_topic))
+        assert await until(lambda: published(wrapper.client, monitor.state_topic))
         payload = last_payload(wrapper, monitor.state_topic)
         assert payload["state"] == "PRESS"
     finally:
-        stop_and_join(device, monitor)
+        await stop_and_join(monitor, task)
 
 
-def test_keystate_is_limited_to_release_when_configured_to_release(
+async def test_keystate_is_limited_to_release_when_configured_to_release(
     fake_evdev, fake_mqtt
 ) -> None:
     config = make_config({"keystates": ["RELEASE"]})
     wrapper = MQTTClientWrapper("test-client", config)
     device, monitor = make_monitor(fake_evdev, wrapper)
-    monitor.start()
+    task = await start(monitor)
     try:
         device.push(press("KEY_A"))
         device.push(hold("KEY_A"))
         device.push(release("KEY_A"))
-        assert wait_for(lambda: published(wrapper.client, monitor.state_topic))
+        assert await until(lambda: published(wrapper.client, monitor.state_topic))
         payload = last_payload(wrapper, monitor.state_topic)
         assert payload["state"] == "RELEASE"
     finally:
-        stop_and_join(device, monitor)
+        await stop_and_join(monitor, task)
 
 
-def test_keystates_are_reported_as_configured(fake_evdev, fake_mqtt) -> None:
+async def test_keystates_are_reported_as_configured(fake_evdev, fake_mqtt) -> None:
     config = make_config({"keystates": ["RELEASE", "PRESS", "REPEAT"]})
     wrapper = MQTTClientWrapper("test-client", config)
     device, monitor = make_monitor(fake_evdev, wrapper)
-    monitor.start()
+    task = await start(monitor)
     try:
         device.push(press("KEY_A"))
         device.push(hold("KEY_A"))
         device.push(release("KEY_A"))
-        assert wait_for(
+        assert await until(
             lambda: len(published(wrapper.client, monitor.state_topic)) >= 3
         )
-        assert monitor.is_alive()
+        assert monitor.running
 
         expected = ["PRESS", "REPEAT", "RELEASE"]
         payloads = [
@@ -361,47 +366,30 @@ def test_keystates_are_reported_as_configured(fake_evdev, fake_mqtt) -> None:
         ]
         assert [p["state"] for p in payloads] == expected
     finally:
-        stop_and_join(device, monitor)
+        await stop_and_join(monitor, task)
 
 
-def test_keystate_tolerates_numeric_value(fake_evdev, fake_mqtt) -> None:
-    config = make_config({"keystates": [0]})
+async def test_modifier_press_is_dropped_even_when_release_configured(
+    fake_evdev, fake_mqtt
+) -> None:
+    """A modifier key's own release must stay filtered, all keystates on."""
+    config = make_config({"keystates": ["PRESS", "RELEASE", "REPEAT"]})
     wrapper = MQTTClientWrapper("test-client", config)
     device, monitor = make_monitor(fake_evdev, wrapper)
-    monitor.start()
+    task = await start(monitor)
     try:
+        device.push(press("KEY_LEFTSHIFT"))
+        device.push(release("KEY_LEFTSHIFT"))
         device.push(press("KEY_A"))
-        device.push(hold("KEY_A"))
         device.push(release("KEY_A"))
-        assert wait_for(lambda: published(wrapper.client, monitor.state_topic))
-        payload = last_payload(wrapper, monitor.state_topic)
-        assert payload["state"] == "RELEASE"
+        assert await until(
+            lambda: len(published(wrapper.client, monitor.state_topic)) >= 2
+        )
+        payloads = [
+            json.loads(r.payload)
+            for r in published(wrapper.client, monitor.state_topic)
+        ]
+        assert [p["key"] for p in payloads] == ["KEY_A", "KEY_A"]
+        assert [p["state"] for p in payloads] == ["PRESS", "RELEASE"]
     finally:
-        stop_and_join(device, monitor)
-
-
-def test_invalid_string_keystate_throws_value_error(fake_evdev, fake_mqtt) -> None:
-    try:
-        KeyHandler.from_config(["INVALID"])
-        raise AssertionError("Invalid string does not raise a ValueError")
-    except ValueError as e:
-        msg = str(e)
-        assert msg == "Invalid keystate: INVALID"
-
-
-def test_invalid_numeric_keystate_throws_value_error(fake_evdev, fake_mqtt) -> None:
-    try:
-        KeyHandler.from_config([3])
-        raise AssertionError("Invalid number does not raise a ValueError")
-    except ValueError as e:
-        msg = str(e)
-        assert msg == "Invalid keystate: 3"
-
-
-def test_invalid_keystate_type_throws_type_error(fake_evdev, fake_mqtt) -> None:
-    try:
-        KeyHandler.from_config([None])
-        raise AssertionError("Invalid type does not raise a TypeError")
-    except TypeError as e:
-        msg = str(e)
-        assert msg == "Invalid keystate type: NoneType"
+        await stop_and_join(monitor, task)

@@ -9,19 +9,23 @@ It can be run with:
 from __future__ import annotations
 
 import argparse
+import asyncio
+import importlib
 import logging
 import signal
 import sys
 from dataclasses import replace
 from platform import node as hostname
 from time import time
-from typing import NoReturn
+from typing import TYPE_CHECKING, NoReturn
 
 from evmqtt.config import Config
 from evmqtt.device_discovery import DiscoveredDevice, discover_devices
 from evmqtt.input_monitor import InputMonitor, list_available_devices
 from evmqtt.key_handler import KeyHandler
-from evmqtt.mqtt_client import MQTTClientWrapper
+
+if TYPE_CHECKING:
+    from evmqtt.mqtt_client import MQTTClientWrapper
 
 logger = logging.getLogger(__name__)
 
@@ -102,6 +106,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+def mqtt_import_error() -> ImportError | None:
+    """The daemon needs paho-mqtt, which lives in the [mqtt] extra."""
+    try:
+        importlib.import_module("paho.mqtt.client")
+    except ImportError as e:
+        return e
+    return None
+
+
 def list_devices_and_exit() -> NoReturn:
     """List available input devices and exit."""
     devices = list_available_devices()
@@ -118,9 +131,9 @@ def list_devices_and_exit() -> NoReturn:
 class Application:
     """Main application controller.
 
-    Manages the lifecycle of the MQTT client and input monitors.
-    Supports automatic device discovery with enable/disable switches
-    controllable from Home Assistant.
+    Runs on an asyncio loop: one core reader per device, paho's network
+    thread for MQTT. Inbound switch commands hop from paho's thread into
+    the loop with call_soon_threadsafe.
     """
 
     def __init__(self, config: Config, connect_timeout: float = 30.0) -> None:
@@ -135,27 +148,30 @@ class Application:
         self._mqtt_client: MQTTClientWrapper | None = None
         self._monitors: list[InputMonitor] = []
         self._monitors_by_path: dict[str, InputMonitor] = {}
-        self._key_handler = KeyHandler.from_config(config.keystates)
+        self._tasks: list[asyncio.Task[object]] = []
+        self._wake = asyncio.Event()
         self._shutdown_requested = False
+        self._stopped = False
 
     @property
     def shutdown_requested(self) -> bool:
-        """Whether stop() has been called (vs. monitors ending on their own)."""
+        """Whether a stop was requested (vs. monitors ending on their own)."""
         return self._shutdown_requested
 
-    def start(self) -> None:
-        """Start the application."""
-        # Create MQTT client
-        client_id = generate_client_id()
-        self._mqtt_client = MQTTClientWrapper(client_id, self._config)
-        self._mqtt_client.connect()
+    async def start(self) -> None:
+        """Connect to MQTT, open devices, publish discovery, start readers."""
+        from evmqtt.mqtt_client import MQTTClientWrapper
 
-        # Wait for connection
-        if not self._mqtt_client.wait_for_connection(timeout=self._connect_timeout):
+        loop = asyncio.get_running_loop()
+        self._mqtt_client = MQTTClientWrapper(generate_client_id(), self._config)
+        await asyncio.to_thread(self._mqtt_client.connect)
+
+        if not await self._mqtt_client.async_wait_for_connection(
+            timeout=self._connect_timeout
+        ):
             logger.error("Failed to connect to MQTT broker within timeout")
             raise ConnectionError("MQTT connection timeout")
 
-        # Create input monitors
         if self._config.auto_discover:
             self._setup_auto_discovery()
         else:
@@ -164,12 +180,12 @@ class Application:
         if not self._monitors:
             raise RuntimeError("No input devices could be opened")
 
-        # Subscribe to switch command topics for all monitors
-        self._setup_switch_subscriptions()
+        self._setup_switch_subscriptions(loop)
 
-        # Start all monitors
         for monitor in self._monitors:
-            monitor.start()
+            task: asyncio.Task[object] = asyncio.create_task(monitor.run())
+            task.add_done_callback(self._on_monitor_done)
+            self._tasks.append(task)
 
         logger.info("Application started with %d monitor(s)", len(self._monitors))
 
@@ -185,17 +201,16 @@ class Application:
         logger.info("Discovered %d input device(s):", len(discovered))
         for device in discovered:
             logger.info(
-                "  %s (%s) -> %s",
+                "  %s (%s) -> %s [id %s]",
                 device.name,
                 device.path,
                 device.slug,
+                device.device_id,
             )
 
-        # Determine which devices should be enabled
-        # If enabled_devices is empty, all devices start enabled
-        # Otherwise, only devices in enabled_devices are enabled
+        # Empty enabled_devices means all devices start enabled.
         enabled_paths = set(self._config.enabled_devices)
-        all_enabled = not enabled_paths  # Empty list means all enabled
+        all_enabled = not enabled_paths
 
         for device in discovered:
             initially_enabled = all_enabled or device.path in enabled_paths
@@ -203,72 +218,63 @@ class Application:
 
     def _setup_manual_devices(self) -> None:
         """Set up monitors for manually specified devices."""
-        # List available devices for reference
         available_devices = list_available_devices()
         logger.info("Found %d available input device(s):", len(available_devices))
         for device in available_devices:
             logger.info("  Path: %s, Name: %s", device["path"], device["name"])
 
         for device_path in self._config.devices:
-            try:
-                # For manual setup, use the old-style monitor without slug
-                monitor = InputMonitor(
-                    mqtt_client=self._mqtt_client,
-                    device_path=device_path,
-                    base_topic=self._config.topic,
-                    gateway_name=self._config.name,
-                    key_handler=KeyHandler(),
-                    initially_enabled=True,
-                    on_enabled_change=self._on_device_enabled_change,
-                )
-                monitor.setup_autodiscovery()
-                self._monitors.append(monitor)
-                self._monitors_by_path[device_path] = monitor
-            except FileNotFoundError:
-                logger.error("Device not found: %s", device_path)
-            except PermissionError:
-                logger.error("Permission denied for device: %s", device_path)
-            except OSError as e:
-                logger.error("Error opening device %s: %s", device_path, e)
+            # Manual setup keeps the path-based topics, no slug.
+            self._add_monitor(device_path)
 
     def _create_monitor_for_device(
         self, device: DiscoveredDevice, initially_enabled: bool
     ) -> None:
-        """Create and configure an InputMonitor for a discovered device.
+        """Create and configure an InputMonitor for a discovered device."""
+        self._add_monitor(
+            device.path,
+            device_slug=device.slug,
+            unique_id=device.unique_id,
+            initially_enabled=initially_enabled,
+        )
 
-        Args:
-            device: The discovered device information.
-            initially_enabled: Whether the monitor should start enabled.
-        """
+    def _add_monitor(
+        self,
+        device_path: str,
+        device_slug: str | None = None,
+        unique_id: str | None = None,
+        initially_enabled: bool = True,
+    ) -> None:
         try:
             monitor = InputMonitor(
                 mqtt_client=self._mqtt_client,
-                device_path=device.path,
+                device_path=device_path,
                 base_topic=self._config.topic,
                 gateway_name=self._config.name,
-                key_handler=KeyHandler(),
-                device_slug=device.slug,
-                unique_id=device.unique_id,
+                key_handler=KeyHandler(publish_states=self._config.keystates),
+                device_slug=device_slug,
+                unique_id=unique_id,
                 initially_enabled=initially_enabled,
                 on_enabled_change=self._on_device_enabled_change,
             )
             monitor.setup_autodiscovery()
             self._monitors.append(monitor)
-            self._monitors_by_path[device.path] = monitor
+            self._monitors_by_path[device_path] = monitor
         except FileNotFoundError:
-            logger.error("Device not found: %s", device.path)
+            logger.error("Device not found: %s", device_path)
         except PermissionError:
-            logger.error("Permission denied for device: %s", device.path)
+            logger.error("Permission denied for device: %s", device_path)
         except OSError as e:
-            logger.error("Error opening device %s: %s", device.path, e)
+            logger.error("Error opening device %s: %s", device_path, e)
 
-    def _setup_switch_subscriptions(self) -> None:
+    def _setup_switch_subscriptions(self, loop: asyncio.AbstractEventLoop) -> None:
         """Subscribe to switch command topics for all monitors."""
         for monitor in self._monitors:
-            # Subscribe to this monitor's switch command topic
             self._mqtt_client.subscribe(
                 monitor.switch_command_topic,
-                lambda topic, payload, m=monitor: m.handle_switch_command(payload),
+                lambda topic, payload, m=monitor: loop.call_soon_threadsafe(
+                    m.handle_switch_command, payload
+                ),
             )
             logger.debug(
                 "Subscribed to switch commands for '%s' on '%s'",
@@ -277,54 +283,78 @@ class Application:
             )
 
     def _on_device_enabled_change(self, device_path: str, enabled: bool) -> None:
-        """Callback when a device's enabled state changes.
-
-        This can be used to persist the enabled state if needed.
-
-        Args:
-            device_path: Path of the device that changed.
-            enabled: New enabled state.
-        """
         logger.info(
             "Device '%s' enabled state changed to: %s",
             device_path,
             enabled,
         )
-        # Future: Could persist this to a file or MQTT retained message
 
-    def wait(self) -> None:
-        """Wait for all monitors to complete."""
-        for monitor in self._monitors:
-            monitor.join()
+    def _on_monitor_done(self, task: asyncio.Task[object]) -> None:
+        if all(t.done() for t in self._tasks):
+            self._wake.set()
 
-    def stop(self) -> None:
-        """Stop the application gracefully."""
-        if self._shutdown_requested:
+    async def wait(self) -> None:
+        """Return when stop is requested or every monitor has ended."""
+        await self._wake.wait()
+
+    def request_stop(self) -> None:
+        """Make wait() return. Safe from a loop signal handler."""
+        self._shutdown_requested = True
+        self._wake.set()
+
+    async def stop(self) -> None:
+        """Stop readers, then disconnect MQTT. Idempotent."""
+        if self._stopped:
             return
+        self._stopped = True
         self._shutdown_requested = True
 
         logger.info("Shutting down...")
 
-        # Stop all monitors
         for monitor in self._monitors:
             monitor.stop()
+        if self._tasks:
+            await asyncio.gather(*self._tasks, return_exceptions=True)
 
-        # Disconnect MQTT
         if self._mqtt_client:
-            self._mqtt_client.disconnect()
+            await asyncio.to_thread(self._mqtt_client.disconnect)
 
         logger.info("Shutdown complete")
 
-    def _handle_signal(self, signum: int, frame: object) -> None:
-        """Handle termination signals.
+    def _handle_signal(self, signum: int) -> None:
+        logger.info("Received %s, initiating shutdown", signal.Signals(signum).name)
+        self.request_stop()
 
-        Args:
-            signum: Signal number.
-            frame: Current stack frame.
-        """
-        sig_name = signal.Signals(signum).name
-        logger.info("Received %s, initiating shutdown", sig_name)
-        self.stop()
+
+async def run_application(app: Application) -> int:
+    """Run app until a signal or until every monitor has ended."""
+    loop = asyncio.get_running_loop()
+    signals = (signal.SIGINT, signal.SIGTERM)
+    for sig in signals:
+        loop.add_signal_handler(sig, app._handle_signal, sig)
+    try:
+        await app.start()
+        await app.wait()
+        if not app.shutdown_requested:
+            logger.error("All input monitors have stopped unexpectedly")
+            return 1
+    except ConnectionError as e:
+        logger.error("Connection error: %s", e)
+        return 1
+    except RuntimeError as e:
+        logger.error("Runtime error: %s", e)
+        return 1
+    except (TypeError, ValueError) as e:
+        logger.error("Invalid configuration: %s", e)
+        return 1
+    except OSError as e:
+        logger.error("Startup error: %s", e)
+        return 1
+    finally:
+        await app.stop()
+        for sig in signals:
+            loop.remove_signal_handler(sig)
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -342,6 +372,14 @@ def main(argv: list[str] | None = None) -> int:
     if args.list_devices:
         list_devices_and_exit()
 
+    missing = mqtt_import_error()
+    if missing is not None:
+        logger.error(
+            "The evmqtt daemon needs paho-mqtt: pip install 'evmqtt[mqtt]' (%s)",
+            missing,
+        )
+        return 1
+
     try:
         config = Config.load(args.config)
 
@@ -356,32 +394,7 @@ def main(argv: list[str] | None = None) -> int:
         logger.error("Invalid configuration: %s", e)
         return 1
 
-    app = Application(config)
-    signal.signal(signal.SIGINT, app._handle_signal)
-    signal.signal(signal.SIGTERM, app._handle_signal)
-
-    try:
-        app.start()
-        app.wait()
-        if not app.shutdown_requested:
-            logger.error("All input monitors have stopped unexpectedly")
-            return 1
-    except ConnectionError as e:
-        logger.error("Connection error: %s", e)
-        return 1
-    except RuntimeError as e:
-        logger.error("Runtime error: %s", e)
-        return 1
-    except (TypeError, ValueError) as e:
-        logger.error("Invalid configuration: %s", e)
-        return 1
-    except OSError as e:
-        logger.error("Startup error: %s", e)
-        return 1
-    finally:
-        app.stop()
-
-    return 0
+    return asyncio.run(run_application(Application(config)))
 
 
 if __name__ == "__main__":

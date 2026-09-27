@@ -76,11 +76,11 @@ docker-compose up -d
 ### Option 3: Python Package
 
 ```bash
-# Install from source
-pip install .
+# Install from source (the daemon needs the mqtt extra)
+pip install ".[mqtt]"
 
 # Or install in development mode
-pip install -e ".[dev]"
+pip install -e ".[mqtt,dev]"
 
 # Run
 evmqtt -c config.json -v
@@ -92,7 +92,7 @@ evmqtt -c config.json -v
 # Clone and install the package
 git clone https://github.com/odtgit/evmqtt
 cd evmqtt
-pip install .
+pip install ".[mqtt]"
 
 # Configure
 sudo mkdir -p /etc/evmqtt
@@ -354,13 +354,40 @@ The device will stop publishing events until re-enabled.
 
 You can also process events in Node-RED by subscribing to the MQTT topic.
 
+## Core Library
+
+`evmqtt.core` is the evdev-only asyncio layer the daemon runs on, usable
+without MQTT (`pip install evmqtt`):
+
+```python
+import asyncio
+from evmqtt.core import DeviceReader, KeyState, is_keyboard_like, list_devices, open_device
+
+async def main():
+    info = list_devices(is_keyboard_like)[0]
+    reader = DeviceReader(
+        open_device(info.path),
+        lambda e: e.state is KeyState.PRESS and print(e.key, e.modifiers),
+        info=info,
+    )
+    await reader.run()
+
+asyncio.run(main())
+```
+
+`info.id` is stable across reboots and eventN renumbering: name slug plus a
+hash of bus, vendor, product, name and either the serial (uniq, plus the
+interface number) when the device has a real one, so it survives a port
+move, or the port path (phys) when it does not. The 1.x MQTT topics still
+use the name slug and eventN.
+
 ## Development
 
 ### Running Tests
 
 ```bash
 # Install dev dependencies
-pip install -e ".[dev]"
+pip install -e ".[mqtt,dev]"
 
 # Run tests
 pytest tests/ -v
@@ -375,6 +402,7 @@ pytest tests/ -v --cov=evmqtt --cov-report=html
 evmqtt/
 ├── src/evmqtt/             # Main package
 │   ├── __init__.py
+│   ├── core/               # evdev-only asyncio library (no MQTT)
 │   ├── __main__.py         # CLI entry point
 │   ├── config.py           # Configuration handling
 │   ├── mqtt_client.py      # MQTT client wrapper
@@ -393,7 +421,7 @@ evmqtt/
 ### Type Checking
 
 ```bash
-mypy src/evmqtt
+mypy src/evmqtt/core
 ```
 
 ### Linting
@@ -406,8 +434,8 @@ ruff format src/ tests/
 ## Requirements
 
 - Python 3.10+
-- paho-mqtt >= 2.0.0
 - evdev >= 1.6.0
+- paho-mqtt >= 2.0.0 for the daemon (`evmqtt[mqtt]`)
 - Linux with input device access
 
 ## Troubleshooting

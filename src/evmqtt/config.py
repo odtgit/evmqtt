@@ -9,9 +9,46 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from evmqtt.core import KeyState
+
 logger = logging.getLogger(__name__)
 
 HA_OPTIONS_PATH = Path("/data/options.json")
+
+DEFAULT_KEYSTATES: frozenset[KeyState] = frozenset({KeyState.PRESS})
+
+_KEYSTATE_BY_NAME: dict[str, KeyState] = {s.name: s for s in KeyState}
+_KEYSTATE_BY_VALUE: dict[int, KeyState] = {s.value: s for s in KeyState}
+
+
+def _parse_keystates(values: Any) -> frozenset[KeyState]:
+    """Normalise config keystates to core KeyState members.
+
+    Accepts KeyState, case-insensitive names ("press") or raw evdev values
+    (1). None means "not configured": PRESS only.
+    """
+    if values is None:
+        return DEFAULT_KEYSTATES
+
+    normalized: set[KeyState] = set()
+    for v in values:
+        if isinstance(v, KeyState):
+            normalized.add(v)
+        elif isinstance(v, str):
+            key = v.upper()
+            if key not in _KEYSTATE_BY_NAME:
+                raise ValueError(f"Invalid keystate: {v}")
+            normalized.add(_KEYSTATE_BY_NAME[key])
+        elif isinstance(v, int):
+            if v not in _KEYSTATE_BY_VALUE:
+                raise ValueError(f"Invalid keystate: {v}")
+            normalized.add(_KEYSTATE_BY_VALUE[v])
+        else:
+            raise TypeError(f"Invalid keystate type: {type(v).__name__}")
+
+    if not normalized:
+        raise ValueError("keystates cannot be empty")
+    return frozenset(normalized)
 
 
 @dataclass
@@ -30,6 +67,7 @@ class Config:
         enabled_devices: List of device paths that are enabled when auto-discovering.
             If empty and auto_discover is True, all devices start enabled.
         filter_keys_only: When auto-discovering, only include devices with key capabilities.
+        keystates: Key states to publish (default: PRESS only).
     """
 
     serverip: str
@@ -38,7 +76,7 @@ class Config:
     password: str
     name: str
     topic: str
-    keystates: set[int | str] | None = None
+    keystates: frozenset[KeyState] = field(default_factory=lambda: DEFAULT_KEYSTATES)
     devices: list[str] = field(default_factory=list)
     auto_discover: bool = False
     enabled_devices: list[str] = field(default_factory=list)
@@ -89,7 +127,7 @@ class Config:
             auto_discover=data.get("auto_discover", False),
             enabled_devices=data.get("enabled_devices", []),
             filter_keys_only=data.get("filter_keys_only", True),
-            keystates=data.get("keystates", None),
+            keystates=_parse_keystates(data.get("keystates")),
         )
 
     @classmethod
@@ -122,7 +160,7 @@ class Config:
             auto_discover=options.get("auto_discover", False),
             enabled_devices=options.get("enabled_devices", []),
             filter_keys_only=options.get("filter_keys_only", True),
-            keystates=options.get("keystates", None),
+            keystates=_parse_keystates(options.get("keystates")),
         )
 
     @classmethod

@@ -4,15 +4,18 @@ from __future__ import annotations
 
 import json
 import logging
-import os
-import select
-import threading
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
-import evdev
-
 import evmqtt
+from evmqtt.core import (
+    DeviceReader,
+    GrabMode,
+    KeyEvent,
+    ReaderStopped,
+    list_devices,
+    open_device,
+)
 from evmqtt.key_handler import KeyHandler
 
 if TYPE_CHECKING:
@@ -21,15 +24,12 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class InputMonitor(threading.Thread):
-    """Monitor a Linux input device and publish events to MQTT.
+class InputMonitor:
+    """Publish one input device's key events to MQTT.
 
-    This class runs as a daemon thread, continuously reading events
-    from an input device and publishing key presses to an MQTT topic.
-
-    Supports Home Assistant autodiscovery for both the sensor (key events)
-    and a switch entity that allows users to enable/disable monitoring
-    from the Home Assistant UI.
+    Wraps a core DeviceReader on the running asyncio loop. Supports Home
+    Assistant autodiscovery for the sensor (key events) and a switch entity
+    that enables/disables publishing from the Home Assistant UI.
 
     Attributes:
         device: The evdev InputDevice being monitored.
@@ -53,128 +53,114 @@ class InputMonitor(threading.Thread):
         initially_enabled: bool = True,
         on_enabled_change: Callable[[str, bool], None] | None = None,
     ) -> None:
-        """Initialize the input monitor.
+        """Open the device and build topics.
 
         Args:
             mqtt_client: MQTT client for publishing messages.
             device_path: Path to the input device (e.g., /dev/input/event0).
             base_topic: Base MQTT topic for this gateway.
             gateway_name: Display name for Home Assistant autodiscovery.
-            key_handler: Optional KeyHandler instance (shared across monitors).
+            key_handler: Optional KeyHandler with the publish rules.
             device_slug: Optional slug for human-readable topic names.
             unique_id: Optional unique ID for this device.
-            initially_enabled: Whether to start with monitoring enabled.
+            initially_enabled: Whether to start with publishing enabled.
             on_enabled_change: Optional callback when enabled state changes.
         """
-        super().__init__(daemon=True)
         self._mqtt_client = mqtt_client
-        self.device = evdev.InputDevice(device_path)
         self._gateway_name = gateway_name
         self._key_handler = key_handler or KeyHandler()
-        self._stop_event = threading.Event()
         self._on_enabled_change = on_enabled_change
+        self.device = open_device(device_path)
+        try:
+            # 1.x grabs at start whether or not the switch is on. 4b: WHILE_ENABLED.
+            self._reader = DeviceReader(
+                self.device,
+                self._handle_key_event,
+                key_config=self._key_handler.key_config,
+                grab=GrabMode.ALWAYS,
+                enabled=initially_enabled,
+            )
+        except OSError:
+            self.device.close()
+            raise
 
-        # A self-pipe to wake a select() blocked on the device fd. Closing
-        # the device fd from another thread does NOT make select() in the
-        # reader thread return on Linux, so stop() writes to this pipe
-        # instead of relying on that.
-        self._wake_r, self._wake_w = os.pipe()
-
-        # Use slug-based topics if provided, otherwise use path-based
         if device_slug:
             topic_suffix = device_slug
             self._unique_id = unique_id or f"evmqtt_{device_slug}"
         else:
-            # Fallback to old path-based naming
             topic_suffix = device_path.replace("/", "_")
             self._unique_id = f"evmqtt_{topic_suffix}"
 
-        # Build topic paths with human-readable device names
         device_base_topic = f"{base_topic}/{topic_suffix}"
         self.state_topic = f"{device_base_topic}/state"
         self.config_topic = f"{device_base_topic}/config"
 
-        # Switch topics for enable/disable control
         self.switch_config_topic = f"homeassistant/switch/{self._unique_id}/config"
         self.switch_state_topic = f"{device_base_topic}/switch/state"
         self.switch_command_topic = f"{device_base_topic}/switch/set"
-
-        # Enabled state - can be controlled via MQTT switch
-        self._enabled = initially_enabled
-        self._enabled_lock = threading.Lock()
 
         logger.info(
             "Monitoring '%s' (%s) -> topic '%s' [%s]",
             self.device.name,
             device_path,
             self.state_topic,
-            "enabled" if self._enabled else "disabled",
+            "enabled" if initially_enabled else "disabled",
         )
 
     @property
     def enabled(self) -> bool:
-        """Check if monitoring is enabled."""
-        with self._enabled_lock:
-            return self._enabled
+        return self._reader.enabled
 
     @enabled.setter
     def enabled(self, value: bool) -> None:
-        """Set the enabled state."""
-        with self._enabled_lock:
-            if self._enabled != value:
-                self._enabled = value
-                logger.info(
-                    "Monitor for '%s' %s",
-                    self.device.name,
-                    "enabled" if value else "disabled",
-                )
-                # Publish state change
-                self._publish_switch_state()
-                # Notify callback
-                if self._on_enabled_change:
-                    self._on_enabled_change(self.device.path, value)
+        if self._reader.enabled == value:
+            return
+        self._reader.set_enabled(value)
+        logger.info(
+            "Monitor for '%s' %s",
+            self.device.name,
+            "enabled" if value else "disabled",
+        )
+        self._publish_switch_state()
+        if self._on_enabled_change:
+            self._on_enabled_change(self.device.path, value)
+
+    @property
+    def running(self) -> bool:
+        return self._reader.running
 
     def setup_autodiscovery(self) -> None:
-        """Publish Home Assistant autodiscovery configurations.
-
-        This publishes both the sensor config (for key events) and
-        the switch config (for enable/disable control).
-        """
+        """Publish Home Assistant sensor and switch discovery, and switch state."""
         self._publish_sensor_autodiscovery()
         self._publish_switch_autodiscovery()
         self._publish_switch_state()
 
-    def _publish_sensor_autodiscovery(self) -> None:
-        """Publish Home Assistant MQTT autodiscovery configuration for sensor."""
-        # Clean up the device name for display
-        display_name = f"{self._gateway_name} - {self.device.name}"
+    def _device_block(self) -> dict[str, object]:
+        return {
+            "identifiers": [self._unique_id],
+            "name": self.device.name,
+            "manufacturer": "evmqtt",
+            "model": "Input Device",
+            "sw_version": evmqtt.__version__,
+        }
 
+    def _publish_sensor_autodiscovery(self) -> None:
         config = {
-            "name": display_name,
+            "name": f"{self._gateway_name} - {self.device.name}",
             "state_topic": self.state_topic,
             "icon": "mdi:keyboard",
             "unique_id": f"{self._unique_id}_sensor",
             "value_template": "{{ value_json.key }}",
             "json_attributes_topic": self.state_topic,
             "json_attributes_template": "{{ value_json | tojson }}",
-            "device": {
-                "identifiers": [self._unique_id],
-                "name": self.device.name,
-                "manufacturer": "evmqtt",
-                "model": "Input Device",
-                "sw_version": evmqtt.__version__,
-            },
+            "device": self._device_block(),
         }
-        config_json = json.dumps(config)
-        self._mqtt_client.publish(self.config_topic, config_json, retain=True)
+        self._mqtt_client.publish(self.config_topic, json.dumps(config), retain=True)
         logger.debug("Published sensor autodiscovery config to '%s'", self.config_topic)
 
     def _publish_switch_autodiscovery(self) -> None:
-        """Publish Home Assistant MQTT autodiscovery configuration for switch."""
-        display_name = f"{self.device.name} Enable"
-
         config = {
-            "name": display_name,
+            "name": f"{self.device.name} Enable",
             "state_topic": self.switch_state_topic,
             "command_topic": self.switch_command_topic,
             "icon": "mdi:toggle-switch",
@@ -183,34 +169,24 @@ class InputMonitor(threading.Thread):
             "payload_off": "OFF",
             "state_on": "ON",
             "state_off": "OFF",
-            "device": {
-                "identifiers": [self._unique_id],
-                "name": self.device.name,
-                "manufacturer": "evmqtt",
-                "model": "Input Device",
-                "sw_version": evmqtt.__version__,
-            },
+            "device": self._device_block(),
         }
-        config_json = json.dumps(config)
-        self._mqtt_client.publish(self.switch_config_topic, config_json, retain=True)
+        self._mqtt_client.publish(
+            self.switch_config_topic, json.dumps(config), retain=True
+        )
         logger.debug(
             "Published switch autodiscovery config to '%s'", self.switch_config_topic
         )
 
     def _publish_switch_state(self) -> None:
-        """Publish the current switch state to MQTT."""
-        state = "ON" if self._enabled else "OFF"
+        state = "ON" if self.enabled else "OFF"
         self._mqtt_client.publish(self.switch_state_topic, state, retain=True)
         logger.debug(
             "Published switch state '%s' to '%s'", state, self.switch_state_topic
         )
 
     def handle_switch_command(self, payload: str) -> None:
-        """Handle a switch command from MQTT.
-
-        Args:
-            payload: The command payload ("ON" or "OFF").
-        """
+        """Apply an "ON"/"OFF" switch command. Runs on the loop thread."""
         payload_upper = payload.upper().strip()
         if payload_upper == "ON":
             self.enabled = True
@@ -219,154 +195,41 @@ class InputMonitor(threading.Thread):
         else:
             logger.warning("Invalid switch command: %s", payload)
 
-    def run(self) -> None:
-        """Main monitoring loop.
+    async def run(self) -> ReaderStopped | None:
+        """Grab and publish until stop(), unplug or a read error.
 
-        Reads events from the input device and publishes key presses
-        to the MQTT broker. This method runs until stop() is called.
+        Returns None if the grab failed.
         """
         try:
-            # Grab the device to prevent events from reaching the console
-            self.device.grab()
-            logger.info("Grabbed device '%s'", self.device.path)
+            self._reader.start()
         except OSError as e:
             logger.error("Failed to grab device '%s': %s", self.device.path, e)
-            self._close_wake_pipe()
-            return
-
+            return None
+        logger.info("Grabbed device '%s'", self.device.path)
         try:
-            self._read_loop()
+            return await self._reader.wait()
         finally:
-            try:
-                self.device.ungrab()
-            except OSError:
-                pass
-            try:
-                self.device.close()
-            except OSError:
-                pass
-            self._close_wake_pipe()
+            self._reader.close()
 
-    def _read_loop(self) -> None:
-        """Wait on the device fd and the wake pipe, dispatching events.
+    def stop(self) -> None:
+        logger.info("Stopping monitor for '%s'", self.device.path)
+        self._reader.close()
 
-        select() on the device fd blocks until an event or an unplug
-        (which makes the fd readable-with-error) shows up. The wake pipe
-        is the only reliable way to unblock this from another thread.
-        """
-        while not self._stop_event.is_set():
-            try:
-                ready, _, _ = select.select([self.device.fd, self._wake_r], [], [])
-            except OSError as e:
-                if not self._stop_event.is_set():
-                    logger.error(
-                        "Error waiting on device '%s': %s", self.device.path, e
-                    )
-                return
-
-            if self._wake_r in ready:
-                try:
-                    os.read(self._wake_r, 4096)
-                except OSError:
-                    pass
-                continue
-
-            if self.device.fd not in ready:
-                continue
-
-            try:
-                for event in self.device.read():
-                    if self._stop_event.is_set():
-                        return
-
-                    if event.type != evdev.ecodes.EV_KEY:
-                        continue
-
-                    # Only handle events if enabled
-                    if self.enabled:
-                        try:
-                            self._handle_key_event(event)
-                        except Exception:
-                            logger.exception(
-                                "Error handling event on '%s'", self.device.path
-                            )
-            except BlockingIOError:
-                continue
-            except OSError as e:
-                if not self._stop_event.is_set():
-                    logger.error(
-                        "Error reading from device '%s': %s", self.device.path, e
-                    )
-                return
-
-    def _handle_key_event(self, event: evdev.InputEvent) -> None:
-        """Process a key event and publish if appropriate.
-
-        Args:
-            event: The evdev InputEvent to process.
-        """
-        key_event = evdev.categorize(event)
-        keycode = key_event.keycode
-        keystate = key_event.keystate
-
-        # Update modifier key state
-        primary_key = keycode[0] if isinstance(keycode, (list, tuple)) else keycode
-        self._key_handler.update_modifier_state(primary_key, keystate)
-
-        # Check if this event should be published
-        if not self._key_handler.should_publish(keycode, keystate):
+    def _handle_key_event(self, event: KeyEvent) -> None:
+        if not self._key_handler.should_publish(event.names, event.state):
             return
-
-        # Build and publish the message
-        formatted_key = self._key_handler.format_keycode(keycode)
-        formatted_state = self._key_handler.format_keystate(keystate)
-        modifier_suffix = self._key_handler.get_modifier_suffix()
-
         message = {
-            "key": formatted_key + modifier_suffix,
+            "key": self._key_handler.format_keycode(event.names)
+            + self._key_handler.modifier_suffix(event.modifiers),
             "devicePath": self.device.path,
             "deviceName": self.device.name,
-            "state": formatted_state,
+            "state": event.state.name,
         }
         message_json = json.dumps(message)
-
         self._mqtt_client.publish(self.state_topic, message_json)
         logger.debug("Published: %s", message_json)
 
-    def stop(self) -> None:
-        """Signal the monitor to stop.
-
-        Writes to the wake pipe so a select() blocked on the device fd
-        wakes up immediately instead of waiting for the next event or a
-        physical unplug.
-        """
-        self._stop_event.set()
-        logger.info("Stopping monitor for '%s'", self.device.path)
-        try:
-            os.write(self._wake_w, b"x")
-        except OSError:
-            pass
-
-    def _close_wake_pipe(self) -> None:
-        """Close both ends of the wake pipe. Safe to call more than once."""
-        for fd in (self._wake_r, self._wake_w):
-            try:
-                os.close(fd)
-            except OSError:
-                pass
-
 
 def list_available_devices() -> list[dict[str, str]]:
-    """List all available input devices.
-
-    Returns:
-        List of dictionaries with 'path' and 'name' keys for each device.
-    """
-    devices = []
-    for path in evdev.list_devices():
-        try:
-            device = evdev.InputDevice(path)
-            devices.append({"path": device.path, "name": device.name})
-        except OSError:
-            continue
-    return devices
+    """List all available input devices as {'path', 'name'} dicts."""
+    return [{"path": d.path, "name": d.name} for d in list_devices()]
