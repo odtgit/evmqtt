@@ -42,7 +42,7 @@
           "rescan_interval": "Hotplug scan period in seconds. 0 disables hotplug.",
           "include_virtual": "Also manage uinput devices.",
           "new_devices_enabled": "Grab newly seen devices immediately. Off is safer: a new keyboard on this host would otherwise stop typing locally.",
-          "mqtt_mirror": "Also publish each event to <base topic>/<device id>/event, same payload as the evmqtt daemon.",
+          "mqtt_mirror": "Also publish each event to BASE_TOPIC/DEVICE_ID/event, same payload as the evmqtt daemon.",
           "mqtt_base_topic": "Base topic for the MQTT mirror."
         }
       }
