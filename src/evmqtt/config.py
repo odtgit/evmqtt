@@ -122,7 +122,7 @@ class Config:
             auto_discover=options.get("auto_discover", False),
             enabled_devices=options.get("enabled_devices", []),
             filter_keys_only=options.get("filter_keys_only", True),
-            keystates=options.get("keystates", None)
+            keystates=options.get("keystates", None),
         )
 
     @classmethod

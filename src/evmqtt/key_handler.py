@@ -21,7 +21,8 @@ class KeyHandler:
     _KEYSTATES = {0: "RELEASE", 1: "PRESS", 2: "REPEAT"}
 
     publish_keystates: set[int] = field(
-        default_factory=lambda: {1}) # Only publish key press, not release or repeat
+        default_factory=lambda: {1}
+    )  # Only publish key press, not release or repeat
     modifiers: set[str] = field(
         default_factory=lambda: {
             "KEY_LEFTSHIFT",
@@ -39,7 +40,7 @@ class KeyHandler:
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
 
     @classmethod
-    def from_config(cls, values: set[int | str] | None) -> "KeyHandler":
+    def from_config(cls, values: set[int | str] | None) -> KeyHandler:
         mapping = {v: k for k, v in KeyHandler._KEYSTATES.items()}
         if values is None:
             return cls()
@@ -118,7 +119,7 @@ class KeyHandler:
         Returns:
             True if the event should be published.
         """
-        if not keystate in self.publish_keystates:
+        if keystate not in self.publish_keystates:
             return False
 
         # Handle case where keycode is a list/tuple (multiple keys reported)
