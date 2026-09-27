@@ -12,38 +12,42 @@ host_network: true
 privileged:
   - SYS_RAWIO
 full_access: true
+services:
+  - "mqtt:need"
 options:
-  mqtt_host: "homeassistant.local"
-  mqtt_port: 1883
-  mqtt_username: ""
-  mqtt_password: ""
-  mqtt_tls: false
-  mqtt_tls_ca: ""
+  mqtt_host: ""
   name: "Input Events"
-  topic: "homeassistant/sensor/evmqtt"
+  discovery_prefix: "homeassistant"
+  base_topic: ""
   auto_discover: true
-  filter_keys_only: true
   keystates: ["PRESS"]
   devices: []
   enabled_devices: []
+  rescan_interval: 5
+  cleanup_legacy: true
   log_level: "info"
 schema:
-  mqtt_host: str
-  mqtt_port: port
+  mqtt_host: str?
+  mqtt_port: port?
   mqtt_username: str?
   mqtt_password: password?
-  mqtt_tls: bool
+  mqtt_tls: bool?
   mqtt_tls_ca: str?
-  name: str
-  topic: str
+  name: str?
+  discovery_prefix: str?
+  base_topic: str?
+  topic: str?
   auto_discover: bool
-  filter_keys_only: bool
+  filter_keys_only: bool?
   keystates:
     - "list(PRESS|RELEASE|REPEAT)"
   devices:
     - str?
   enabled_devices:
     - str?
+  state_file: str?
+  rescan_interval: "int(0,)?"
+  cleanup_legacy: bool?
   log_level: list(debug|info|warning|error)
 panel_icon: "mdi:remote"
 panel_title: "evmqtt"
