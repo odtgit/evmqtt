@@ -1,0 +1,17 @@
+services:
+  evmqtt:
+    hostname: evmqtt
+    container_name: evmqtt
+    build:
+      context: .
+    image: odtdock/evmqtt
+    restart: unless-stopped
+    volumes:
+      - "./config.json:/data/config.json:ro"
+      - "/dev/input:/dev/input:ro"
+      - "/etc/localtime:/etc/localtime:ro"
+    environment:
+      TZ: Europe/Stockholm
+    devices:
+      - /dev/input/event4
+    network_mode: host
