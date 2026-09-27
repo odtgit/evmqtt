@@ -6,21 +6,12 @@ url: "https://github.com/odtgit/evmqtt"
 arch:
   - amd64
   - aarch64
-  - armv7
-  - armhf
-  - i386
 startup: "system"
-boot: "auto"
 init: false
-homeassistant_api: false
-hassio_api: false
 host_network: true
 privileged:
   - SYS_RAWIO
 full_access: true
-devices: true
-map:
-  - config:rw
 options:
   mqtt_host: "homeassistant.local"
   mqtt_port: 1883

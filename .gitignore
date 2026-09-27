@@ -1,4 +1,5 @@
 # Local config
+config.json
 config.local.json
 
 # Python
