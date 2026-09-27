@@ -12,9 +12,14 @@ https://github.com/odtgit/evmqtt
 from __future__ import annotations
 
 import importlib
+from importlib.metadata import PackageNotFoundError, version
 from typing import Any
 
-__version__ = "1.1.0"
+try:
+    __version__ = version("evmqtt")
+except PackageNotFoundError:
+    __version__ = "0.0.0+unknown"
+
 __author__ = "odtgit"
 
 _LAZY = {
