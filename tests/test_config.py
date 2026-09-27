@@ -216,6 +216,16 @@ class TestConfig:
         assert config.filter_keys_only is True
         assert config.enabled_devices == ["/dev/input/event0"]
 
+    def test_from_ha_options_tls(self) -> None:
+        """Test TLS options from HA add-on."""
+        base = {"mqtt_host": "h", "mqtt_port": 1883, "auto_discover": True}
+        config = Config.from_ha_options({**base, "mqtt_tls": False, "mqtt_tls_ca": ""})
+        assert config.tls is False
+        assert config.tls_ca == ""
+        config = Config.from_ha_options({**base, "mqtt_tls": True, "mqtt_tls_ca": "/data/ca.crt"})
+        assert config.tls is True
+        assert config.tls_ca == "/data/ca.crt"
+
     def test_from_ha_options_fallback_to_legacy_keys(self) -> None:
         """Test that HA options fallback to legacy config keys."""
         options = {

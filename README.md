@@ -171,6 +171,43 @@ For standalone deployment, create a `config.json` file:
 }
 ```
 
+#### MQTT over TLS
+To enable MQTT over TLS ("MQTTS") using system CA certificates,
+set the optional key `tls` to `true`:
+```json
+{
+  ...
+  "tls": true,
+  ...
+}
+```
+
+When running in a container, add a volume to gain access to the system certificates of the host:
+```yaml
+    volumes:
+      - "/etc/ssl/certs/ca-certificates.crt:/etc/ssl/certs/ca-certificates.crt:ro"
+```
+
+To enable MQTT over TLS ("MQTTS") using a custom CA certificate,
+set the optional key `tls_ca` to the path of the CA file:
+```json
+{
+  ...
+  "tls_ca": "/data/ca.crt",
+  ...
+}
+```
+
+When running in a container, add a volume for the custom CA certificate:
+```yaml
+    volumes:
+      - "./custom-ca.crt:/data/ca.crt"
+```
+
+When TLS is enabled, the default MQTT port is 8883, and the `port` key may be omitted.
+
+For the Home Assistant add-on, set `mqtt_tls` / `mqtt_tls_ca` and change `mqtt_port` to 8883 (the add-on default is 1883).
+
 ### Finding Input Devices
 
 List available input devices:

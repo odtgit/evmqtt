@@ -26,6 +26,8 @@ options:
   mqtt_port: 1883
   mqtt_username: ""
   mqtt_password: ""
+  mqtt_tls: false
+  mqtt_tls_ca: ""
   name: "Input Events"
   topic: "homeassistant/sensor/evmqtt"
   auto_discover: true
@@ -38,6 +40,8 @@ schema:
   mqtt_port: port
   mqtt_username: str?
   mqtt_password: password?
+  mqtt_tls: bool
+  mqtt_tls_ca: str?
   name: str
   topic: str
   auto_discover: bool
