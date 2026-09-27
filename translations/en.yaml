@@ -11,15 +11,30 @@ configuration:
   mqtt_password:
     name: MQTT Password
     description: Password for MQTT authentication. Leave empty if not required.
+  mqtt_tls:
+    name: MQTT TLS
+    description: Enable MQTT over TLS ("MQTTS"). When enabled, the default MQTT port is 8883.
+  mqtt_tls_ca:
+    name: MQTT TLS CA Certificate
+    description: Path to a custom CA certificate file for MQTT TLS. Leave empty to use the system CA certificates.
   name:
     name: Sensor Name
     description: Display name for the sensor in Home Assistant.
   topic:
     name: MQTT Topic
     description: Base MQTT topic for publishing input events. Events will be published to {topic}/state.
+  auto_discover:
+    name: Auto Discover
+    description: Automatically discover and monitor all input devices instead of a manual list.
+  filter_keys_only:
+    name: Filter Keys Only
+    description: When auto-discovering, only include devices with key capabilities.
   devices:
     name: Input Devices
     description: List of Linux input device paths to monitor (e.g., /dev/input/event0). Use "ls -la /dev/input/" to find available devices.
+  enabled_devices:
+    name: Enabled Devices
+    description: List of device paths to enable by default when auto-discovering. Leave empty to enable all discovered devices.
   log_level:
     name: Log Level
     description: Logging verbosity level for troubleshooting.
