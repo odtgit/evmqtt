@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import inspect
 from pathlib import Path
 
 import evdev
@@ -10,6 +12,19 @@ import pytest
 import evmqtt.config as config_module
 import evmqtt.mqtt_client as mqtt_client_module
 from tests.fakes import FakeEvdevRegistry, make_fake_paho_class
+
+ASYNC_TEST_TIMEOUT = 10.0
+
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_pyfunc_call(pyfuncitem: pytest.Function) -> bool | None:
+    """Run `async def` tests on a fresh asyncio loop."""
+    if not inspect.iscoroutinefunction(pyfuncitem.obj):
+        return None
+    names = pyfuncitem._fixtureinfo.argnames
+    kwargs = {name: pyfuncitem.funcargs[name] for name in names}
+    asyncio.run(asyncio.wait_for(pyfuncitem.obj(**kwargs), ASYNC_TEST_TIMEOUT))
+    return True
 
 
 @pytest.fixture(autouse=True)

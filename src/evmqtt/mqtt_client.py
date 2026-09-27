@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import ssl
 import threading
@@ -47,6 +48,8 @@ class MQTTClientWrapper:
         self._connected = threading.Event()
         self._subscriptions: dict[str, MessageCallback] = {}
         self._subscription_lock = threading.Lock()
+        self._connect_waiters: list[Callable[[], None]] = []
+        self._waiter_lock = threading.Lock()
 
         logger.info(
             "MQTT connecting to %s:%d as '%s'",
@@ -93,6 +96,10 @@ class MQTTClientWrapper:
         else:
             logger.info("Connected to MQTT broker successfully")
             self._connected.set()
+            with self._waiter_lock:
+                waiters = list(self._connect_waiters)
+            for notify in waiters:
+                notify()
 
             # Re-subscribe to all topics after reconnection
             with self._subscription_lock:
@@ -217,6 +224,31 @@ class MQTTClientWrapper:
             True if connected, False if timeout occurred.
         """
         return self._connected.wait(timeout=timeout)
+
+    async def async_wait_for_connection(self, timeout: float = 10.0) -> bool:
+        """Like wait_for_connection, without blocking the event loop.
+
+        on_connect runs on paho's network thread; it hops into the loop
+        with call_soon_threadsafe.
+        """
+        loop = asyncio.get_running_loop()
+        event = asyncio.Event()
+
+        def notify() -> None:
+            loop.call_soon_threadsafe(event.set)
+
+        with self._waiter_lock:
+            self._connect_waiters.append(notify)
+        try:
+            if self._connected.is_set():
+                return True
+            await asyncio.wait_for(event.wait(), timeout)
+            return True
+        except asyncio.TimeoutError:
+            return False
+        finally:
+            with self._waiter_lock:
+                self._connect_waiters.remove(notify)
 
     @property
     def is_connected(self) -> bool:
