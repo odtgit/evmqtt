@@ -19,9 +19,8 @@ env:
   REGISTRY: ghcr.io
   REGISTRY_IMAGE: ghcr.io/${{ github.repository }}
 
-# permissions are needed if pushing to ghcr.io
 permissions:
-  packages: write
+  contents: read
 
 jobs:
   lint:
@@ -35,6 +34,21 @@ jobs:
       - run: ruff check src tests
       - run: ruff format --check src tests
 
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Core installs and imports without the mqtt extra
+        run: |
+          pip install -e .
+          python -c "import evmqtt.core, importlib.util as u; assert u.find_spec('paho') is None"
+      - run: pip install mypy
+      - run: mypy src/evmqtt/core
+
   test:
     runs-on: ubuntu-latest
     strategy:
@@ -47,7 +61,7 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
-      - run: pip install -e ".[dev]"
+      - run: pip install -e ".[mqtt,dev]"
       - run: pytest -q -m "not broker and not uinput" --cov=evmqtt --cov-report=term-missing --cov-fail-under=89
 
   uinput:
@@ -59,7 +73,7 @@ jobs:
           python-version: "3.12"
           cache: pip
       - run: sudo modprobe uinput
-      - run: pip install -e ".[dev]"
+      - run: pip install -e ".[mqtt,dev]"
       - run: sudo -E env "PATH=$PATH" EVMQTT_REQUIRE_UINPUT=1 python -m pytest -q -p no:cacheprovider -m uinput
 
   broker:
@@ -73,11 +87,14 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y mosquitto
       - run: sudo systemctl stop mosquitto || true
       - run: sudo systemctl disable mosquitto || true
-      - run: pip install -e ".[dev]"
+      - run: pip install -e ".[mqtt,dev]"
       - run: pytest -q -m broker
 
   image-build:
     runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+      packages: write
     strategy:
       fail-fast: true
       matrix:
@@ -101,18 +118,42 @@ jobs:
         uses: docker/metadata-action@v6
         with:
           images: ${{ env.REGISTRY_IMAGE }}
+          flavor: |
+            latest=false
+          tags: |
+            type=edge,branch=master
+            type=semver,pattern={{version}}
+            type=raw,value=latest,enable=${{ github.event_name == 'release' }}
       -
         name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
       -
+        # fork PRs get a read-only GITHUB_TOKEN, so only log in on non-PR events
         name: Login to GitHub Container Registry
+        if: github.event_name != 'pull_request'
         uses: docker/login-action@v4
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       -
+        name: Build (PR, local load)
+        if: github.event_name == 'pull_request'
+        id: build-pr
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          build-args: |
+            BUILD_NAME=${{ github.event.repository.name }}
+            BUILD_DESCRIPTION=${{ github.event.repository.description }}
+            BUILD_VERSION=${{ steps.meta.outputs.version }}
+          platforms: ${{ matrix.platform }}
+          labels: ${{ steps.meta.outputs.labels }}
+          load: true
+          tags: evmqtt:${{ env.PLATFORM_PAIR }}
+      -
         name: Build and push by digest
+        if: github.event_name != 'pull_request'
         id: build
         uses: docker/build-push-action@v7
         with:
@@ -121,12 +162,21 @@ jobs:
             BUILD_NAME=${{ github.event.repository.name }}
             BUILD_DESCRIPTION=${{ github.event.repository.description }}
             BUILD_VERSION=${{ steps.meta.outputs.version }}
-
           platforms: ${{ matrix.platform }}
           labels: ${{ steps.meta.outputs.labels }}
           outputs: type=image,name=${{ env.REGISTRY_IMAGE }},push-by-digest=true,name-canonical=true,push=true
       -
+        name: Smoke test (PR image)
+        if: github.event_name == 'pull_request'
+        run: |
+          image="evmqtt:${{ env.PLATFORM_PAIR }}"
+          docker run --rm "${image}" evmqtt --help
+          status=0
+          docker run --rm "${image}" evmqtt --list-devices || status=$?
+          test "${status}" -eq 1
+      -
         name: Smoke test
+        if: github.event_name != 'pull_request'
         run: |
           image="${{ env.REGISTRY_IMAGE }}@${{ steps.build.outputs.digest }}"
           docker run --rm "${image}" evmqtt --help
@@ -135,17 +185,20 @@ jobs:
           test "${status}" -eq 1
       -
         name: Lint HA configuration
+        if: matrix.platform == 'linux/amd64'
         uses: frenck/action-app-linter@v2.21.1
         with:
           path: "."
       -
         name: Export digest
+        if: github.event_name != 'pull_request'
         run: |
           mkdir -p /tmp/digests
           digest="${{ steps.build.outputs.digest }}"
           touch "/tmp/digests/${digest#sha256:}"
       -
         name: Upload digest
+        if: github.event_name != 'pull_request'
         uses: actions/upload-artifact@v7
         with:
           name: digests-${{ env.PLATFORM_PAIR }}
@@ -154,7 +207,11 @@ jobs:
           retention-days: 1
 
   merge:
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     needs:
       - image-build
     strategy:
@@ -176,8 +233,14 @@ jobs:
         uses: docker/metadata-action@v6
         with:
           images: ${{ env.REGISTRY_IMAGE }}
+          flavor: |
+            latest=false
+          tags: |
+            type=edge,branch=master
+            type=semver,pattern={{version}}
+            type=raw,value=latest,enable=${{ github.event_name == 'release' }}
       -
-        name: Login to Docker Hub
+        name: Login to GitHub Container Registry
         uses: docker/login-action@v4
         with:
           registry: ${{ env.REGISTRY }}
