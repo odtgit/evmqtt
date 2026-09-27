@@ -33,11 +33,6 @@ class DiscoveredDevice:
     unique_id: str
     capabilities: list[str]
 
-    @property
-    def has_keys(self) -> bool:
-        """Check if the device supports key events."""
-        return "EV_KEY" in self.capabilities
-
 
 def slugify(text: str) -> str:
     """Convert text to a URL/topic-safe slug.
@@ -166,30 +161,3 @@ def discover_devices(filter_keys_only: bool = True) -> list[DiscoveredDevice]:
 
     logger.info("Discovered %d input device(s)", len(devices))
     return devices
-
-
-def discover_device_by_path(path: str) -> DiscoveredDevice | None:
-    """Discover a specific device by path.
-
-    Args:
-        path: The device path (e.g., /dev/input/event0).
-
-    Returns:
-        DiscoveredDevice if found and accessible, None otherwise.
-    """
-    try:
-        device = evdev.InputDevice(path)
-        capabilities = get_device_capabilities(device)
-        slug = slugify(device.name)
-        unique_id = generate_unique_id(path, slug)
-
-        return DiscoveredDevice(
-            path=path,
-            name=device.name,
-            slug=slug,
-            unique_id=unique_id,
-            capabilities=capabilities,
-        )
-    except OSError as e:
-        logger.warning("Could not access device %s: %s", path, e)
-        return None
