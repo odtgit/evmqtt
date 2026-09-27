@@ -52,7 +52,7 @@ Then restart Home Assistant, go to **Settings** → **Add-ons** → **evmqtt** a
 
 ```bash
 # Build the image (use standard Python base for standalone deployment)
-docker build --build-arg BUILD_FROM=python:3.13-alpine3.24 -t evmqtt .
+docker build --build-arg -t evmqtt .
 
 # Create your config from the template
 cp config.example.json config.json
@@ -70,7 +70,7 @@ docker run -d \
 Or use Docker Compose (also expects a `config.json` created from `config.example.json` as above):
 
 ```bash
-docker-compose up -d
+docker compose up -d
 ```
 
 ### Option 3: Python Package
@@ -397,7 +397,6 @@ evmqtt/
 │   └── device_discovery.py # Auto-discovery logic
 ├── tests/                  # Test suite
 ├── config.yaml             # HA add-on manifest
-├── build.yaml              # HA add-on per-arch base images
 ├── repository.yaml         # HA add-on repository manifest
 ├── Dockerfile              # Container build
 ├── pyproject.toml          # Python packaging
