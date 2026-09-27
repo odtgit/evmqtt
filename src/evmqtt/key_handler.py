@@ -19,10 +19,12 @@ class KeyHandler:
     """
 
     _KEYSTATES = {0: "RELEASE", 1: "PRESS", 2: "REPEAT"}
+    _KEYSTATES_REV = {v: k for k, v in _KEYSTATES.items()}
 
     publish_keystates: set[int] = field(
         default_factory=lambda: {1}
     )  # Only publish key press, not release or repeat
+
     modifiers: set[str] = field(
         default_factory=lambda: {
             "KEY_LEFTSHIFT",
@@ -41,10 +43,24 @@ class KeyHandler:
 
     @classmethod
     def from_config(cls, values: set[int | str] | None) -> KeyHandler:
-        mapping = {v: k for k, v in KeyHandler._KEYSTATES.items()}
         if values is None:
             return cls()
-        return cls(publish_keystates={mapping.get(v, v) for v in values})
+
+        normalized: set[int] = set()
+        for v in values:
+            if isinstance(v, int):
+                if v not in cls._KEYSTATES:
+                    raise ValueError(f"Invalid keystate: {v}")
+                normalized.add(v)
+            elif isinstance(v, str):
+                key = v.upper()
+                if key not in cls._KEYSTATES_REV:
+                    raise ValueError(f"Invalid keystate: {v}")
+                normalized.add(cls._KEYSTATES_REV[key])
+            else:
+                raise TypeError(f"Invalid keystate type: {type(v).__name__}")
+
+        return cls(publish_keystates=normalized)
 
     def update_modifier_state(self, keycode: str, keystate: int) -> None:
         """Update the state of a modifier key.

@@ -38,7 +38,7 @@ class Config:
     password: str
     name: str
     topic: str
-    keystates: set[int] | None = None
+    keystates: set[int | str] | None = None
     devices: list[str] = field(default_factory=list)
     auto_discover: bool = False
     enabled_devices: list[str] = field(default_factory=list)

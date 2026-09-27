@@ -23,7 +23,7 @@ options:
   topic: "homeassistant/sensor/evmqtt"
   auto_discover: true
   filter_keys_only: true
-  keystates: null
+  keystates: ["PRESS"]
   devices: []
   enabled_devices: []
   log_level: "info"
