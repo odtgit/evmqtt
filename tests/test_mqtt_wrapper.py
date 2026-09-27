@@ -19,6 +19,13 @@ def make_config(**overrides) -> Config:
     return Config.from_dict(data)
 
 
+def test_empty_username_skips_username_pw_set(fake_mqtt) -> None:
+    config = make_config()
+    wrapper = MQTTClientWrapper("c1", config)
+    assert wrapper.client.username is None
+    assert wrapper.client.password is None
+
+
 def test_tls_ca_path_is_passed_to_client(fake_mqtt, tmp_path: Path) -> None:
     ca_path = tmp_path / "ca.pem"
     ca_path.write_text("fake-ca")

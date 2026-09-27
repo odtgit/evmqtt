@@ -246,6 +246,9 @@ class FakePahoClient:
         self.username = username
         self.password = password
 
+    def enable_logger(self, logger: Any = None) -> None:
+        pass
+
     def tls_set(self, ca_certs: str | None = None, **kwargs: Any) -> None:
         if ca_certs and not Path(ca_certs).is_file():
             raise FileNotFoundError(ca_certs)

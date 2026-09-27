@@ -9,6 +9,7 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 import paho.mqtt.client as mqtt
+from paho.mqtt.client import topic_matches_sub
 
 if TYPE_CHECKING:
     from evmqtt.config import Config
@@ -34,16 +35,12 @@ class MQTTClientWrapper:
         self,
         client_id: str,
         config: Config,
-        on_connect_callback: Callable[..., None] | None = None,
-        on_disconnect_callback: Callable[..., None] | None = None,
     ) -> None:
         """Initialize the MQTT client.
 
         Args:
             client_id: Unique identifier for this client.
             config: Configuration object containing MQTT connection details.
-            on_connect_callback: Optional callback for connection events.
-            on_disconnect_callback: Optional callback for disconnection events.
         """
         self.client_id = client_id
         self._config = config
@@ -64,23 +61,15 @@ class MQTTClientWrapper:
             client_id=client_id,
             protocol=mqtt.MQTTv311,
         )
+        self.client.enable_logger(logging.getLogger("paho"))
 
-        self.client.username_pw_set(config.username, config.password)
+        if config.username:
+            self.client.username_pw_set(config.username, config.password)
 
         # Set up callbacks
         self.client.on_connect = self._on_connect
         self.client.on_disconnect = self._on_disconnect
         self.client.on_message = self._on_message
-
-        if on_connect_callback:
-            self._user_on_connect = on_connect_callback
-        else:
-            self._user_on_connect = None
-
-        if on_disconnect_callback:
-            self._user_on_disconnect = on_disconnect_callback
-        else:
-            self._user_on_disconnect = None
 
     def _on_connect(
         self,
@@ -111,9 +100,6 @@ class MQTTClientWrapper:
                     logger.debug("Re-subscribing to '%s'", topic)
                     self.client.subscribe(topic)
 
-        if self._user_on_connect:
-            self._user_on_connect(client, userdata, flags, reason_code, properties)
-
     def _on_disconnect(
         self,
         client: mqtt.Client,
@@ -133,9 +119,6 @@ class MQTTClientWrapper:
         """
         self._connected.clear()
         logger.warning("Disconnected from MQTT broker: %s", reason_code)
-
-        if self._user_on_disconnect:
-            self._user_on_disconnect(client, userdata, flags, reason_code, properties)
 
     def _on_message(
         self,
@@ -162,53 +145,12 @@ class MQTTClientWrapper:
         # Find and call the matching callback
         with self._subscription_lock:
             for subscribed_topic, callback in self._subscriptions.items():
-                if self._topic_matches(subscribed_topic, topic):
+                if topic_matches_sub(subscribed_topic, topic):
                     try:
                         callback(topic, payload)
                     except Exception as e:
                         logger.error("Error in message callback for '%s': %s", topic, e)
                     break
-
-    @staticmethod
-    def _topic_matches(pattern: str, topic: str) -> bool:
-        """Check if a topic matches a subscription pattern.
-
-        Supports MQTT wildcards:
-        - # matches any number of levels
-        - + matches exactly one level
-
-        Args:
-            pattern: The subscription pattern (may contain wildcards).
-            topic: The actual topic to match.
-
-        Returns:
-            True if the topic matches the pattern.
-        """
-        pattern_parts = pattern.split("/")
-        topic_parts = topic.split("/")
-
-        pattern_idx = 0
-        topic_idx = 0
-
-        while pattern_idx < len(pattern_parts) and topic_idx < len(topic_parts):
-            pattern_part = pattern_parts[pattern_idx]
-
-            if pattern_part == "#":
-                # # matches everything from here
-                return True
-            elif pattern_part == "+":
-                # + matches exactly one level
-                pattern_idx += 1
-                topic_idx += 1
-            elif pattern_part == topic_parts[topic_idx]:
-                # Exact match
-                pattern_idx += 1
-                topic_idx += 1
-            else:
-                return False
-
-        # Check if we've matched completely
-        return pattern_idx == len(pattern_parts) and topic_idx == len(topic_parts)
 
     def connect(self) -> None:
         """Connect to the MQTT broker and start the network loop."""
@@ -265,20 +207,6 @@ class MQTTClientWrapper:
         else:
             logger.debug("Queued subscription to '%s' (not yet connected)", topic)
 
-    def unsubscribe(self, topic: str) -> None:
-        """Unsubscribe from an MQTT topic.
-
-        Args:
-            topic: The topic to unsubscribe from.
-        """
-        with self._subscription_lock:
-            if topic in self._subscriptions:
-                del self._subscriptions[topic]
-
-        if self._connected.is_set():
-            self.client.unsubscribe(topic)
-            logger.debug("Unsubscribed from '%s'", topic)
-
     def wait_for_connection(self, timeout: float = 10.0) -> bool:
         """Wait for the MQTT connection to be established.
 
@@ -294,17 +222,3 @@ class MQTTClientWrapper:
     def is_connected(self) -> bool:
         """Check if the client is currently connected."""
         return self._connected.is_set()
-
-    def __enter__(self) -> MQTTClientWrapper:
-        """Context manager entry."""
-        self.connect()
-        return self
-
-    def __exit__(
-        self,
-        exc_type: type[BaseException] | None,
-        exc_val: BaseException | None,
-        exc_tb: Any,
-    ) -> None:
-        """Context manager exit."""
-        self.disconnect()
