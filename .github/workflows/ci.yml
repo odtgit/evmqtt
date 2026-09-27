@@ -67,10 +67,10 @@ jobs:
 
       - name: Stage add-on manifest for linting
         run: |
-          mkdir -p /tmp/addon-lint/translations
-          cp config.yaml build.yaml /tmp/addon-lint/
-          cp translations/en.yaml /tmp/addon-lint/translations/
+          mkdir -p .addon-lint-stage/translations
+          cp config.yaml build.yaml .addon-lint-stage/
+          cp translations/en.yaml .addon-lint-stage/translations/
 
       - uses: frenck/action-app-linter@v2.21.1
         with:
-          path: /tmp/addon-lint
+          path: "./.addon-lint-stage"
