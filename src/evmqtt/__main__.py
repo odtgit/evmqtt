@@ -57,8 +57,11 @@ def generate_client_id() -> str:
     return f"evmqtt_{hostname()}_{int(time())}"
 
 
-def parse_args() -> argparse.Namespace:
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     """Parse command line arguments.
+
+    Args:
+        argv: Argument list to parse (default: sys.argv[1:]).
 
     Returns:
         Parsed arguments namespace.
@@ -95,7 +98,7 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Override config to enable auto-discovery of all input devices",
     )
-    return parser.parse_args()
+    return parser.parse_args(argv)
 
 
 def list_devices_and_exit() -> NoReturn:
@@ -119,13 +122,15 @@ class Application:
     controllable from Home Assistant.
     """
 
-    def __init__(self, config: Config) -> None:
+    def __init__(self, config: Config, connect_timeout: float = 30.0) -> None:
         """Initialize the application.
 
         Args:
             config: Application configuration.
+            connect_timeout: Seconds to wait for the MQTT broker to connect.
         """
         self._config = config
+        self._connect_timeout = connect_timeout
         self._mqtt_client: MQTTClientWrapper | None = None
         self._monitors: list[InputMonitor] = []
         self._monitors_by_path: dict[str, InputMonitor] = {}
@@ -134,17 +139,13 @@ class Application:
 
     def start(self) -> None:
         """Start the application."""
-        # Set up signal handlers
-        signal.signal(signal.SIGINT, self._handle_signal)
-        signal.signal(signal.SIGTERM, self._handle_signal)
-
         # Create MQTT client
         client_id = generate_client_id()
         self._mqtt_client = MQTTClientWrapper(client_id, self._config)
         self._mqtt_client.connect()
 
         # Wait for connection
-        if not self._mqtt_client.wait_for_connection(timeout=30.0):
+        if not self._mqtt_client.wait_for_connection(timeout=self._connect_timeout):
             logger.error("Failed to connect to MQTT broker within timeout")
             raise ConnectionError("MQTT connection timeout")
 
@@ -320,13 +321,16 @@ class Application:
         self.stop()
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
     """Main entry point.
+
+    Args:
+        argv: Argument list to parse (default: sys.argv[1:]).
 
     Returns:
         Exit code (0 for success, non-zero for errors).
     """
-    args = parse_args()
+    args = parse_args(argv)
     setup_logging(verbose=args.verbose, debug=args.debug)
 
     if args.list_devices:
@@ -359,6 +363,8 @@ def main() -> int:
         return 1
 
     app = Application(config)
+    signal.signal(signal.SIGINT, app._handle_signal)
+    signal.signal(signal.SIGTERM, app._handle_signal)
 
     try:
         app.start()

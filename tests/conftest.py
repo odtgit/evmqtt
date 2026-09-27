@@ -1,83 +1,39 @@
-"""Shared pytest fixtures for evmqtt tests."""
+"""Shared pytest fixtures for evmqtt scenario tests."""
 
 from __future__ import annotations
 
+from pathlib import Path
+
+import evdev
 import pytest
 
-from evmqtt.config import Config
+import evmqtt.config as config_module
+import evmqtt.mqtt_client as mqtt_client_module
+from tests.fakes import FakeEvdevRegistry, make_fake_paho_class
+
+
+@pytest.fixture(autouse=True)
+def isolated_ha_options_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Point Config.load's HA options search at a tmp path, not /data/options.json."""
+    fake_path = tmp_path / "options.json"
+    monkeypatch.setattr(config_module, "HA_OPTIONS_PATH", fake_path)
+    return fake_path
 
 
 @pytest.fixture
-def valid_config_dict() -> dict[str, object]:
-    """Return a valid configuration dictionary."""
-    return {
-        "serverip": "192.168.1.100",
-        "port": 1883,
-        "username": "test_user",
-        "password": "test_pass",
-        "name": "Test Gateway",
-        "topic": "homeassistant/sensor/evmqtt",
-        "devices": ["/dev/input/event0"],
-    }
+def fake_evdev(monkeypatch: pytest.MonkeyPatch) -> FakeEvdevRegistry:
+    """Patch evdev.InputDevice / evdev.list_devices with an in-memory registry."""
+    registry = FakeEvdevRegistry()
+    monkeypatch.setattr(evdev, "InputDevice", registry.open)
+    monkeypatch.setattr(evdev, "list_devices", registry.list_devices)
+    yield registry
+    # Unblock any monitor threads left mid-read_loop so daemon threads exit.
+    registry.close_all()
 
 
 @pytest.fixture
-def valid_auto_discover_config_dict() -> dict[str, object]:
-    """Return a valid configuration dictionary with auto_discover enabled."""
-    return {
-        "serverip": "192.168.1.100",
-        "port": 1883,
-        "username": "test_user",
-        "password": "test_pass",
-        "name": "Test Gateway",
-        "topic": "homeassistant/sensor/evmqtt",
-        "auto_discover": True,
-        "filter_keys_only": True,
-        "devices": [],
-        "enabled_devices": [],
-    }
-
-
-@pytest.fixture
-def valid_ha_options() -> dict[str, object]:
-    """Return valid Home Assistant add-on options."""
-    return {
-        "mqtt_host": "homeassistant.local",
-        "mqtt_port": 1883,
-        "mqtt_username": "ha_user",
-        "mqtt_password": "ha_pass",
-        "name": "Input Events",
-        "topic": "homeassistant/sensor/evmqtt",
-        "devices": ["/dev/input/event0", "/dev/input/event1"],
-        "auto_discover": False,
-        "log_level": "info",
-    }
-
-
-@pytest.fixture
-def valid_ha_options_auto_discover() -> dict[str, object]:
-    """Return valid Home Assistant add-on options with auto_discover."""
-    return {
-        "mqtt_host": "homeassistant.local",
-        "mqtt_port": 1883,
-        "mqtt_username": "ha_user",
-        "mqtt_password": "ha_pass",
-        "name": "Input Events",
-        "topic": "homeassistant/sensor/evmqtt",
-        "auto_discover": True,
-        "filter_keys_only": True,
-        "enabled_devices": [],
-        "log_level": "info",
-    }
-
-
-@pytest.fixture
-def config_from_dict(valid_config_dict: dict[str, object]) -> Config:
-    """Create a Config instance from the valid config dictionary."""
-    return Config.from_dict(valid_config_dict)
-
-
-@pytest.fixture
-def config_auto_discover(valid_auto_discover_config_dict: dict[str, object]) -> Config:
-    """Create a Config instance with auto_discover enabled."""
-    return Config.from_dict(valid_auto_discover_config_dict)
+def fake_mqtt(monkeypatch: pytest.MonkeyPatch):
+    """Patch evmqtt.mqtt_client.mqtt.Client with an isolated FakePahoClient."""
+    cls = make_fake_paho_class()
+    monkeypatch.setattr(mqtt_client_module.mqtt, "Client", cls)
+    return cls

@@ -38,7 +38,21 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: pip
       - run: pip install -e ".[dev]"
-      - run: pytest -q
+      - run: pytest -q -m "not broker" --cov=evmqtt --cov-report=term-missing --cov-fail-under=89
+
+  broker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: sudo apt-get update && sudo apt-get install -y mosquitto
+      - run: sudo systemctl stop mosquitto || true
+      - run: sudo systemctl disable mosquitto || true
+      - run: pip install -e ".[dev]"
+      - run: pytest -q -m broker
 
   docker:
     runs-on: ubuntu-latest
