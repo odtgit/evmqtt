@@ -40,7 +40,7 @@ def start_reader(ui: UInput, events: list[KeyEvent], **kwargs) -> DeviceReader:
 async def test_reader_emits_states_modifiers_and_aliases(
     make_uinput: UInputFactory,
 ) -> None:
-    ui = make_uinput(name="evmqtt-core-kbd")
+    ui = make_uinput(name="evmqtt-test-core-kbd")
     events: list[KeyEvent] = []
     reader = start_reader(ui, events)
     try:
@@ -65,7 +65,7 @@ async def test_reader_emits_states_modifiers_and_aliases(
 async def test_cancel_is_clean_and_fast_on_idle_device(
     make_uinput: UInputFactory,
 ) -> None:
-    ui = make_uinput(name="evmqtt-core-idle")
+    ui = make_uinput(name="evmqtt-test-core-idle")
     reader = DeviceReader(open_device(ui.device.path), lambda e: None)
     task = asyncio.ensure_future(reader.run())
     assert await until(lambda: reader.running)
@@ -90,7 +90,7 @@ async def test_cancel_is_clean_and_fast_on_idle_device(
 async def test_grab_excludes_other_readers_only_while_enabled(
     make_uinput: UInputFactory,
 ) -> None:
-    ui = make_uinput(name="evmqtt-core-grab")
+    ui = make_uinput(name="evmqtt-test-core-grab")
     events: list[KeyEvent] = []
     reader = start_reader(ui, events)
     bystander = evdev.InputDevice(ui.device.path)
@@ -119,7 +119,7 @@ async def test_grab_excludes_other_readers_only_while_enabled(
 
 
 async def test_unplug_ends_reader_with_enodev(make_uinput: UInputFactory) -> None:
-    ui = make_uinput(name="evmqtt-core-unplug")
+    ui = make_uinput(name="evmqtt-test-core-unplug")
     stopped = []
     reader = DeviceReader(
         open_device(ui.device.path), lambda e: None, on_stopped=stopped.append
@@ -139,10 +139,10 @@ def ids_for(phys: str) -> list[str]:
 def test_device_id_survives_recreate_and_splits_on_phys(
     make_uinput: UInputFactory,
 ) -> None:
-    kwargs = {"name": "evmqtt-id-test", "vendor": 0x1234, "product": 0x5678}
+    kwargs = {"name": "evmqtt-test-id"}
     first = make_uinput(phys="evmqtt-test/usb-1/input0", **kwargs)
     info = describe(first.device)
-    assert (info.vendor, info.product) == (0x1234, 0x5678)
+    assert (info.vendor, info.product) == (0x7E57, 0x0001)
     assert info.phys == "evmqtt-test/usb-1/input0"
     original_id = info.id
     first.close()
@@ -156,7 +156,7 @@ def test_device_id_survives_recreate_and_splits_on_phys(
 def test_identical_virtual_devices_get_suffixed_ids(
     make_uinput: UInputFactory,
 ) -> None:
-    kwargs = {"name": "evmqtt-dup-test", "phys": "evmqtt-test/dup"}
+    kwargs = {"name": "evmqtt-test-dup", "phys": "evmqtt-test/dup"}
     make_uinput(**kwargs)
     make_uinput(**kwargs)
     ids = ids_for("evmqtt-test/dup")
@@ -165,18 +165,18 @@ def test_identical_virtual_devices_get_suffixed_ids(
 
 
 def test_keyboard_filter_on_real_nodes(make_uinput: UInputFactory) -> None:
-    kbd = make_uinput(name="evmqtt-filter-kbd", phys="evmqtt-test/filter")
+    kbd = make_uinput(name="evmqtt-test-filter-kbd", phys="evmqtt-test/filter")
     mouse = make_uinput(
         {
             ecodes.EV_KEY: [ecodes.BTN_LEFT, ecodes.BTN_RIGHT],
             ecodes.EV_REL: [ecodes.REL_X, ecodes.REL_Y],
         },
-        name="evmqtt-filter-mouse",
+        name="evmqtt-test-filter-mouse",
         phys="evmqtt-test/filter",
     )
     power = make_uinput(
         {ecodes.EV_KEY: [ecodes.KEY_POWER]},
-        name="evmqtt-filter-power",
+        name="evmqtt-test-filter-power",
         phys="evmqtt-test/filter",
     )
     found = {
