@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import signal
+import sys
 from pathlib import Path
 
 import pytest
@@ -37,16 +40,16 @@ class RecordingApplication:
         RecordingApplication.captured_config = config
         self.shutdown_requested = True
 
-    def start(self) -> None:
+    async def start(self) -> None:
         pass
 
-    def wait(self) -> None:
+    async def wait(self) -> None:
         pass
 
-    def stop(self) -> None:
+    async def stop(self) -> None:
         pass
 
-    def _handle_signal(self, signum: int, frame: object) -> None:
+    def _handle_signal(self, signum: int) -> None:
         pass
 
 
@@ -55,6 +58,14 @@ class FastApplication(Application):
 
     def __init__(self, config) -> None:
         super().__init__(config, connect_timeout=0.1)
+
+
+class SigtermAfterStart(Application):
+    """Application that sends itself SIGTERM once running."""
+
+    async def start(self) -> None:
+        await super().start()
+        os.kill(os.getpid(), signal.SIGTERM)
 
 
 def test_list_devices_found_exits_zero(fake_evdev, capsys) -> None:
@@ -154,3 +165,45 @@ def test_non_connection_startup_error_returns_exit_one(
     )
     config_path = write_config(tmp_path, **overrides)
     assert main(["--config", str(config_path)]) == 1
+
+
+def test_sigterm_shuts_down_cleanly_and_exits_zero(
+    fake_evdev, fake_mqtt, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    device = fake_evdev.add(
+        "/dev/input/event0", name="Kbd", capabilities=keyboard_capabilities()
+    )
+    monkeypatch.setattr(main_module, "Application", SigtermAfterStart)
+    config_path = write_config(tmp_path)
+    assert main(["--config", str(config_path)]) == 0
+    assert device.grab_calls == 1
+    assert not device.grabbed
+    assert device.closed
+    assert fake_mqtt.last().connected is False
+
+
+def test_unplug_of_only_device_exits_one(
+    fake_evdev, fake_mqtt, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    device = fake_evdev.add(
+        "/dev/input/event0", name="Kbd", capabilities=keyboard_capabilities()
+    )
+
+    class UnplugAfterStart(Application):
+        async def start(self) -> None:
+            await super().start()
+            device.unplug()
+
+    monkeypatch.setattr(main_module, "Application", UnplugAfterStart)
+    config_path = write_config(tmp_path)
+    assert main(["--config", str(config_path)]) == 1
+    assert device.closed
+
+
+def test_missing_paho_exits_one_with_hint(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys
+) -> None:
+    monkeypatch.setitem(sys.modules, "paho.mqtt.client", None)
+    config_path = write_config(tmp_path)
+    assert main(["--config", str(config_path)]) == 1
+    assert "evmqtt[mqtt]" in capsys.readouterr().err

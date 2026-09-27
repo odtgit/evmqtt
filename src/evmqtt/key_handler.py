@@ -1,133 +1,68 @@
-"""Key event handling and modifier tracking for evmqtt."""
+"""1.x publish rules applied to core KeyEvents."""
 
 from __future__ import annotations
 
-import threading
+from collections.abc import Sequence
 from dataclasses import dataclass, field
+
+from evmqtt.core import DEFAULT_IGNORED, DEFAULT_MODIFIERS, KeyConfig, KeyState
 
 
 @dataclass
 class KeyHandler:
-    """Handles keyboard modifier key state tracking.
+    """Decides which key events the daemon publishes and how the key reads.
 
-    This class maintains the state of modifier keys (Shift, Ctrl, etc.)
-    and provides methods to check and format key combinations.
+    Modifier state lives in the core reader, per device. This class only
+    holds the modifier/ignored sets (handed to the core via key_config),
+    the states to publish, and the 1.x key string format.
 
     Attributes:
-        modifiers: Set of key codes considered modifier keys.
-        ignored_keys: Set of key codes to ignore (e.g., NUMLOCK).
+        modifiers: Key names considered modifier keys.
+        ignored_keys: Key names to ignore (e.g., NUMLOCK).
+        publish_states: Key states to publish. 1.x publishes PRESS only.
     """
 
-    modifiers: set[str] = field(
-        default_factory=lambda: {
-            "KEY_LEFTSHIFT",
-            "KEY_RIGHTSHIFT",
-            "KEY_LEFTCTRL",
-            "KEY_RIGHTCTRL",
-            "KEY_LEFTALT",
-            "KEY_RIGHTALT",
-            "KEY_LEFTMETA",
-            "KEY_RIGHTMETA",
-        }
-    )
-    ignored_keys: set[str] = field(default_factory=lambda: {"KEY_NUMLOCK"})
-    _key_state: dict[str, int] = field(default_factory=dict, repr=False)
-    _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
+    modifiers: set[str] = field(default_factory=lambda: set(DEFAULT_MODIFIERS))
+    ignored_keys: set[str] = field(default_factory=lambda: set(DEFAULT_IGNORED))
+    publish_states: frozenset[KeyState] = frozenset({KeyState.PRESS})
 
-    def update_modifier_state(self, keycode: str, keystate: int) -> None:
-        """Update the state of a modifier key.
-
-        Thread-safe method to track which modifier keys are currently pressed.
-
-        Args:
-            keycode: The key code string (e.g., "KEY_LEFTSHIFT").
-            keystate: The key state (1 = pressed, 0 = released).
-        """
-        if keycode in self.modifiers:
-            with self._lock:
-                self._key_state[keycode] = keystate
-
-    def get_active_modifiers(self) -> list[str]:
-        """Get a sorted list of currently pressed modifier keys.
-
-        Returns:
-            Sorted list of modifier key codes that are currently pressed.
-        """
-        with self._lock:
-            return sorted(key for key, state in self._key_state.items() if state != 0)
-
-    def get_modifier_suffix(self) -> str:
-        """Get a string suffix representing active modifiers.
-
-        Returns:
-            String like "_KEY_LEFTSHIFT_KEY_RIGHTCTRL" or empty string
-            if no modifiers are active.
-        """
-        active = self.get_active_modifiers()
-        if not active:
-            return ""
-        return "_" + "_".join(active)
+    @property
+    def key_config(self) -> KeyConfig:
+        return KeyConfig(
+            modifiers=frozenset(self.modifiers), ignored=frozenset(self.ignored_keys)
+        )
 
     def is_modifier(self, keycode: str) -> bool:
-        """Check if a key code is a modifier key.
-
-        Args:
-            keycode: The key code to check.
-
-        Returns:
-            True if the key is a modifier key.
-        """
         return keycode in self.modifiers
 
     def is_ignored(self, keycode: str) -> bool:
-        """Check if a key code should be ignored.
-
-        Args:
-            keycode: The key code to check.
-
-        Returns:
-            True if the key should be ignored.
-        """
         return keycode in self.ignored_keys
 
     def should_publish(
         self, keycode: str | list[str] | tuple[str, ...], keystate: int
     ) -> bool:
-        """Determine if a key event should be published.
-
-        Only key press events (keystate=1) for non-modifier, non-ignored
-        keys should be published.
+        """Publish configured states of non-modifier, non-ignored keys.
 
         Args:
-            keycode: The key code. evdev.categorize() returns a str for a
-                single-name key, or a list/tuple of str for an aliased key
+            keycode: A key name, or all names of an aliased code
                 (e.g. KEY_MUTE -> ('KEY_MIN_INTERESTING', 'KEY_MUTE')).
-            keystate: The key state (1 = pressed, 0 = released).
-
-        Returns:
-            True if the event should be published.
+            keystate: 0 release, 1 press, 2 repeat.
         """
-        if keystate != 1:  # Only publish key press, not release or repeat
+        if keystate not in self.publish_states:
             return False
-
-        # Handle case where keycode is a list/tuple (multiple keys reported)
         primary_key = keycode[0] if isinstance(keycode, (list, tuple)) else keycode
-
         return not self.is_modifier(primary_key) and not self.is_ignored(primary_key)
 
     @staticmethod
     def format_keycode(keycode: str | list[str] | tuple[str, ...]) -> str:
-        """Format a key code for publishing.
-
-        Handles cases where the input device reports multiple key codes
-        for a single key press (as a list or, for aliased keys, a tuple).
-
-        Args:
-            keycode: Single key code string, or list/tuple of key codes.
-
-        Returns:
-            Formatted key code string.
-        """
+        """Aliased names joined with '|', as 1.x published them."""
         if isinstance(keycode, (list, tuple)):
             return "|".join(keycode)
         return keycode
+
+    @staticmethod
+    def modifier_suffix(modifiers: Sequence[str]) -> str:
+        """'_KEY_LEFTCTRL_KEY_LEFTSHIFT' for sorted held modifiers, or ''."""
+        if not modifiers:
+            return ""
+        return "_" + "_".join(modifiers)

@@ -6,6 +6,7 @@ explicitly with `pytest -m broker`.
 
 from __future__ import annotations
 
+import json
 import shutil
 import socket
 import subprocess
@@ -14,8 +15,10 @@ from pathlib import Path
 
 import pytest
 
+from evmqtt.__main__ import Application
 from evmqtt.config import Config
 from evmqtt.mqtt_client import MQTTClientWrapper
+from tests.fakes import drained, keyboard_capabilities, press, until
 
 pytestmark = pytest.mark.broker
 
@@ -214,3 +217,47 @@ def test_tls_connects_with_generated_ca(
             client.disconnect()
     finally:
         tls_broker.stop()
+
+
+async def test_application_roundtrip_through_real_broker(
+    broker: Broker, fake_evdev
+) -> None:
+    """Daemon on the asyncio core plus paho's real network thread."""
+    device = fake_evdev.add(
+        "/dev/input/event0", name="Kbd A", capabilities=keyboard_capabilities()
+    )
+    app = Application(
+        make_config(broker.port, auto_discover=True, devices=[]), connect_timeout=5.0
+    )
+    await app.start()
+    received: list[tuple[str, str]] = []
+    observer = MQTTClientWrapper("observer", make_config(broker.port))
+    observer.subscribe("evmqtt-test/#", lambda t, p: received.append((t, p)))
+    observer.connect()
+    try:
+        assert await observer.async_wait_for_connection(5.0)
+        base = "evmqtt-test/kbd-a"
+
+        def keys() -> list[str]:
+            return [json.loads(p)["key"] for t, p in received if t == f"{base}/state"]
+
+        assert await until(lambda: (f"{base}/switch/state", "ON") in received, 5)
+        assert any(t == f"{base}/config" for t, _ in received)
+
+        device.push(press("KEY_A"))
+        assert await until(lambda: keys() == ["KEY_A"], 5)
+
+        observer.publish(f"{base}/switch/set", "OFF")
+        assert await until(lambda: (f"{base}/switch/state", "OFF") in received, 5)
+        device.push(press("KEY_B"))
+        await drained(device)
+
+        observer.publish(f"{base}/switch/set", "ON")
+        assert await until(lambda: received[-1] == (f"{base}/switch/state", "ON"), 5)
+        device.push(press("KEY_C"))
+        assert await until(lambda: "KEY_C" in keys(), 5)
+        assert keys() == ["KEY_A", "KEY_C"]
+    finally:
+        observer.disconnect()
+        await app.stop()
+    assert not device.grabbed
