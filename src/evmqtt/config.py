@@ -105,7 +105,9 @@ class Config:
         tls_ca = options.get("mqtt_tls_ca", options.get("tls_ca", ""))
         return cls(
             serverip=options.get("mqtt_host", options.get("serverip", "")),
-            port=options.get("mqtt_port", options.get("port", 8883 if tls or tls_ca else 1883)),
+            port=options.get(
+                "mqtt_port", options.get("port", 8883 if tls or tls_ca else 1883)
+            ),
             username=options.get("mqtt_username", options.get("username", "")),
             password=options.get("mqtt_password", options.get("password", "")),
             tls=tls,

@@ -5,8 +5,6 @@ from __future__ import annotations
 import json
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from evmqtt.input_monitor import InputMonitor, list_available_devices
 from evmqtt.key_handler import KeyHandler
 
@@ -57,7 +55,10 @@ class TestInputMonitor:
         )
 
         assert monitor.state_topic == "homeassistant/sensor/evmqtt/test-keyboard/state"
-        assert monitor.switch_command_topic == "homeassistant/sensor/evmqtt/test-keyboard/switch/set"
+        assert (
+            monitor.switch_command_topic
+            == "homeassistant/sensor/evmqtt/test-keyboard/switch/set"
+        )
 
     @patch("evmqtt.input_monitor.evdev.InputDevice")
     def test_autodiscovery_published(self, mock_input_device: MagicMock) -> None:
@@ -437,9 +438,7 @@ class TestInputMonitor:
         mock_mqtt_client.publish.assert_not_called()
 
     @patch("evmqtt.input_monitor.evdev.InputDevice")
-    def test_handle_key_event_with_modifier(
-        self, mock_input_device: MagicMock
-    ) -> None:
+    def test_handle_key_event_with_modifier(self, mock_input_device: MagicMock) -> None:
         """Test that key presses with modifiers include modifier suffix."""
         mock_device = MagicMock()
         mock_device.path = "/dev/input/event0"

@@ -156,9 +156,7 @@ class TestConfig:
             "devices": ["/dev/input/event0"],
         }
 
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".json", delete=False
-        ) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
             json.dump(data, f)
             temp_path = f.name
 
@@ -222,7 +220,9 @@ class TestConfig:
         config = Config.from_ha_options({**base, "mqtt_tls": False, "mqtt_tls_ca": ""})
         assert config.tls is False
         assert config.tls_ca == ""
-        config = Config.from_ha_options({**base, "mqtt_tls": True, "mqtt_tls_ca": "/data/ca.crt"})
+        config = Config.from_ha_options(
+            {**base, "mqtt_tls": True, "mqtt_tls_ca": "/data/ca.crt"}
+        )
         assert config.tls is True
         assert config.tls_ca == "/data/ca.crt"
 
@@ -273,9 +273,7 @@ class TestConfig:
             "devices": ["/dev/input/event0"],
         }
 
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".json", delete=False
-        ) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
             json.dump(data, f)
             temp_path = f.name
 
