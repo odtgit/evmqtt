@@ -36,6 +36,7 @@ dev = [
     "pytest-cov>=4.0.0",
     "mypy>=1.0.0",
     "ruff>=0.1.0",
+    "trustme>=1.1.0",
 ]
 
 [project.scripts]
@@ -52,6 +53,9 @@ where = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+markers = [
+    "broker: requires a real mosquitto broker on localhost",
+]
 
 [tool.mypy]
 python_version = "3.10"
