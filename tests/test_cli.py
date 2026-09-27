@@ -35,6 +35,7 @@ class RecordingApplication:
 
     def __init__(self, config, connect_timeout: float = 30.0) -> None:
         RecordingApplication.captured_config = config
+        self.shutdown_requested = True
 
     def start(self) -> None:
         pass
@@ -112,10 +113,6 @@ def test_log_level_flags(flags: list[str], expected_level: int) -> None:
         root.setLevel(original_level)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="bug: main() rebuilds Config for --auto-discover without tls/tls_ca",
-)
 def test_auto_discover_flag_preserves_tls(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -133,10 +130,6 @@ def test_auto_discover_flag_preserves_tls(
     assert RecordingApplication.captured_config.tls_ca == "/etc/evmqtt/ca.pem"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="bug: main() exits 0 even when every monitor thread has died",
-)
 def test_all_monitors_dead_exits_nonzero(fake_evdev, fake_mqtt, tmp_path: Path) -> None:
     device = fake_evdev.add(
         "/dev/input/event0", name="Kbd", capabilities=keyboard_capabilities()
@@ -147,11 +140,6 @@ def test_all_monitors_dead_exits_nonzero(fake_evdev, fake_mqtt, tmp_path: Path) 
     assert exit_code != 0
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="bug: non-ConnectionError startup errors (DNS/tls_ca path) raise "
-    "instead of returning exit 1",
-)
 @pytest.mark.parametrize(
     "overrides",
     [

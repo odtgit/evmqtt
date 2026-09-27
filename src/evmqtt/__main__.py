@@ -12,6 +12,7 @@ import argparse
 import logging
 import signal
 import sys
+from dataclasses import replace
 from platform import node as hostname
 from time import time
 from typing import NoReturn
@@ -134,8 +135,12 @@ class Application:
         self._mqtt_client: MQTTClientWrapper | None = None
         self._monitors: list[InputMonitor] = []
         self._monitors_by_path: dict[str, InputMonitor] = {}
-        self._key_handler = KeyHandler()
         self._shutdown_requested = False
+
+    @property
+    def shutdown_requested(self) -> bool:
+        """Whether stop() has been called (vs. monitors ending on their own)."""
+        return self._shutdown_requested
 
     def start(self) -> None:
         """Start the application."""
@@ -211,7 +216,7 @@ class Application:
                     device_path=device_path,
                     base_topic=self._config.topic,
                     gateway_name=self._config.name,
-                    key_handler=self._key_handler,
+                    key_handler=KeyHandler(),
                     initially_enabled=True,
                     on_enabled_change=self._on_device_enabled_change,
                 )
@@ -240,7 +245,7 @@ class Application:
                 device_path=device.path,
                 base_topic=self._config.topic,
                 gateway_name=self._config.name,
-                key_handler=self._key_handler,
+                key_handler=KeyHandler(),
                 device_slug=device.slug,
                 unique_id=device.unique_id,
                 initially_enabled=initially_enabled,
@@ -341,19 +346,7 @@ def main(argv: list[str] | None = None) -> int:
 
         # Override auto_discover from command line if specified
         if args.auto_discover:
-            # Create a new config with auto_discover enabled
-            config = Config(
-                serverip=config.serverip,
-                port=config.port,
-                username=config.username,
-                password=config.password,
-                name=config.name,
-                topic=config.topic,
-                devices=config.devices,
-                auto_discover=True,
-                enabled_devices=config.enabled_devices,
-                filter_keys_only=config.filter_keys_only,
-            )
+            config = replace(config, auto_discover=True)
 
     except FileNotFoundError as e:
         logger.error("Configuration error: %s", e)
@@ -369,14 +362,21 @@ def main(argv: list[str] | None = None) -> int:
     try:
         app.start()
         app.wait()
+        if not app.shutdown_requested:
+            logger.error("All input monitors have stopped unexpectedly")
+            return 1
     except ConnectionError as e:
         logger.error("Connection error: %s", e)
         return 1
     except RuntimeError as e:
         logger.error("Runtime error: %s", e)
         return 1
-    except KeyboardInterrupt:
-        logger.info("Interrupted by user")
+    except (TypeError, ValueError) as e:
+        logger.error("Invalid configuration: %s", e)
+        return 1
+    except OSError as e:
+        logger.error("Startup error: %s", e)
+        return 1
     finally:
         app.stop()
 

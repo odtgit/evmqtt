@@ -335,11 +335,6 @@ def test_reconnect_after_drop_resubscribes_and_commands_still_work(
         app.stop()
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="bug: KeyHandler is shared across all auto-discovered devices; "
-    "shift held on one device leaks a modifier suffix onto another",
-)
 def test_modifier_state_is_not_shared_across_devices(fake_evdev, fake_mqtt) -> None:
     device_a = fake_evdev.add(
         "/dev/input/event0", name="Kbd A", capabilities=keyboard_capabilities()
