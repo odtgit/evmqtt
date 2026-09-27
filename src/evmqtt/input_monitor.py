@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import select
 import threading
 from collections.abc import Callable
 from typing import TYPE_CHECKING
@@ -71,6 +73,12 @@ class InputMonitor(threading.Thread):
         self._key_handler = key_handler or KeyHandler()
         self._stop_event = threading.Event()
         self._on_enabled_change = on_enabled_change
+
+        # A self-pipe to wake a select() blocked on the device fd. Closing
+        # the device fd from another thread does NOT make select() in the
+        # reader thread return on Linux, so stop() writes to this pipe
+        # instead of relying on that.
+        self._wake_r, self._wake_w = os.pipe()
 
         # Use slug-based topics if provided, otherwise use path-based
         if device_slug:
@@ -223,33 +231,73 @@ class InputMonitor(threading.Thread):
             logger.info("Grabbed device '%s'", self.device.path)
         except OSError as e:
             logger.error("Failed to grab device '%s': %s", self.device.path, e)
+            self._close_wake_pipe()
             return
 
         try:
-            for event in self.device.read_loop():
-                if self._stop_event.is_set():
-                    break
-
-                if event.type != evdev.ecodes.EV_KEY:
-                    continue
-
-                # Only handle events if enabled
-                if self.enabled:
-                    try:
-                        self._handle_key_event(event)
-                    except Exception:
-                        logger.exception(
-                            "Error handling event on '%s'", self.device.path
-                        )
-
-        except OSError as e:
-            if not self._stop_event.is_set():
-                logger.error("Error reading from device '%s': %s", self.device.path, e)
+            self._read_loop()
         finally:
             try:
                 self.device.ungrab()
             except OSError:
                 pass
+            try:
+                self.device.close()
+            except OSError:
+                pass
+            self._close_wake_pipe()
+
+    def _read_loop(self) -> None:
+        """Wait on the device fd and the wake pipe, dispatching events.
+
+        select() on the device fd blocks until an event or an unplug
+        (which makes the fd readable-with-error) shows up. The wake pipe
+        is the only reliable way to unblock this from another thread.
+        """
+        while not self._stop_event.is_set():
+            try:
+                ready, _, _ = select.select([self.device.fd, self._wake_r], [], [])
+            except OSError as e:
+                if not self._stop_event.is_set():
+                    logger.error(
+                        "Error waiting on device '%s': %s", self.device.path, e
+                    )
+                return
+
+            if self._wake_r in ready:
+                try:
+                    os.read(self._wake_r, 4096)
+                except OSError:
+                    pass
+                continue
+
+            if self.device.fd not in ready:
+                continue
+
+            try:
+                for event in self.device.read():
+                    if self._stop_event.is_set():
+                        return
+
+                    if event.type != evdev.ecodes.EV_KEY:
+                        continue
+
+                    # Only handle events if enabled
+                    if self.enabled:
+                        try:
+                            self._handle_key_event(event)
+                        except Exception:
+                            logger.exception(
+                                "Error handling event on '%s'", self.device.path
+                            )
+            except BlockingIOError:
+                continue
+            except OSError as e:
+                if not self._stop_event.is_set():
+                    logger.error(
+                        "Error reading from device '%s': %s", self.device.path, e
+                    )
+                return
 
     def _handle_key_event(self, event: evdev.InputEvent) -> None:
         """Process a key event and publish if appropriate.
@@ -286,15 +334,24 @@ class InputMonitor(threading.Thread):
     def stop(self) -> None:
         """Signal the monitor to stop.
 
-        Closes the device fd so a blocked read_loop() wakes up with an
-        OSError instead of waiting forever for the next event.
+        Writes to the wake pipe so a select() blocked on the device fd
+        wakes up immediately instead of waiting for the next event or a
+        physical unplug.
         """
         self._stop_event.set()
         logger.info("Stopping monitor for '%s'", self.device.path)
         try:
-            self.device.close()
+            os.write(self._wake_w, b"x")
         except OSError:
             pass
+
+    def _close_wake_pipe(self) -> None:
+        """Close both ends of the wake pipe. Safe to call more than once."""
+        for fd in (self._wake_r, self._wake_w):
+            try:
+                os.close(fd)
+            except OSError:
+                pass
 
 
 def list_available_devices() -> list[dict[str, str]]:
