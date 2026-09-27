@@ -7,9 +7,11 @@ naturally instead of being mocked away.
 
 from __future__ import annotations
 
+import asyncio
 import errno
 import os
 import queue
+import select
 import socket
 import time
 from collections.abc import Callable
@@ -41,13 +43,24 @@ class FakeInputDevice:
         path: str,
         name: str = "Fake Device",
         capabilities: dict[int, list[int]] | None = None,
+        phys: str = "",
+        uniq: str = "",
+        bustype: int = 0x03,
+        vendor: int = 0,
+        product: int = 0,
+        version: int = 0,
     ) -> None:
         self.path = path
         self.name = name
+        self.phys = phys
+        self.uniq = uniq
+        self.info = evdev.DeviceInfo(bustype, vendor, product, version)
         self._capabilities = capabilities or {ecodes.EV_KEY: list(range(1, 250))}
         self._queue: queue.Queue[Any] = queue.Queue()
         self.grabbed = False
+        self.grab_calls = 0
         self.closed = False
+        self.opens = 0
         self.grab_error: OSError | None = None
         self._pipe_r, self._pipe_w = os.pipe()
         self.fd = self._pipe_r
@@ -61,14 +74,23 @@ class FakeInputDevice:
     def grab(self) -> None:
         if self.grab_error is not None:
             raise self.grab_error
+        if self.grabbed:
+            raise OSError(errno.EBUSY, "Device or resource busy")
         self.grabbed = True
+        self.grab_calls += 1
 
     def ungrab(self) -> None:
         self.grabbed = False
 
     def close(self) -> None:
-        """Release the fds. Does not wake a thread blocked in select()."""
+        """Release the fds. Does not wake a thread blocked in select().
+
+        Each registry open() is a separate handle; the fds go on the last close.
+        """
         if self.closed:
+            return
+        self.opens -= 1
+        if self.opens > 0:
             return
         self.closed = True
         for fd in (self._pipe_r, self._pipe_w):
@@ -99,7 +121,9 @@ class FakeInputDevice:
         if pending_error is not None:
             if events:
                 # Deliver what we already have; raise on the next read().
+                # A dead device node stays readable, so keep the fd hot.
                 self._queue.put(pending_error)
+                self._wake()
             else:
                 raise pending_error
 
@@ -108,6 +132,23 @@ class FakeInputDevice:
         return events
 
     # -- test helpers --------------------------------------------------
+    def reopen(self) -> None:
+        if self.closed:
+            self._pipe_r, self._pipe_w = os.pipe()
+            self.fd = self._pipe_r
+            self.closed = False
+        self.opens += 1
+
+    @property
+    def idle(self) -> bool:
+        """No queued events and nothing left to read on the fd."""
+        if not self._queue.empty():
+            return False
+        if self.closed:
+            return True
+        ready, _, _ = select.select([self._pipe_r], [], [], 0)
+        return not ready
+
     def push(self, event: evdev.InputEvent) -> None:
         self._queue.put(event)
         self._wake()
@@ -142,10 +183,14 @@ class FakeEvdevRegistry:
         path: str,
         name: str = "Fake Device",
         capabilities: dict[int, list[int]] | None = None,
+        **attrs: Any,
     ) -> FakeInputDevice:
-        device = FakeInputDevice(path, name, capabilities)
+        device = FakeInputDevice(path, name, capabilities, **attrs)
         self._devices[path] = device
         return device
+
+    def remove(self, path: str) -> FakeInputDevice:
+        return self._devices.pop(path)
 
     def deny(self, path: str) -> None:
         self._errors[path] = PermissionError
@@ -155,15 +200,17 @@ class FakeEvdevRegistry:
             raise self._errors[path](path)
         if path not in self._devices:
             raise FileNotFoundError(path)
-        return self._devices[path]
+        device = self._devices[path]
+        device.reopen()
+        return device
 
     def list_devices(self) -> list[str]:
         return sorted({*self._devices.keys(), *self._errors.keys()})
 
     def close_all(self) -> None:
         for device in self._devices.values():
-            if not device.closed:
-                device.close()
+            device.opens = min(device.opens, 1)
+            device.close()
 
 
 def keyboard_capabilities(*extra_codes: int) -> dict[int, list[int]]:
@@ -239,6 +286,22 @@ def wait_for(
             return True
         time.sleep(interval)
     return predicate()
+
+
+async def until(predicate: Callable[[], object], timeout: float = 2.0) -> bool:
+    """Yield to the loop until predicate() is truthy. timeout is a hang guard."""
+    deadline = time.monotonic() + timeout
+    while not predicate():
+        if time.monotonic() > deadline:
+            return False
+        await asyncio.sleep(0)
+    return True
+
+
+async def drained(*devices: FakeInputDevice) -> None:
+    """Return once the loop has read everything pushed to these devices."""
+    assert await until(lambda: all(d.idle for d in devices))
+    await asyncio.sleep(0)
 
 
 # -- fake paho-mqtt client ---------------------------------------------------
