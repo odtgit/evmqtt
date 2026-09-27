@@ -39,7 +39,7 @@ schema:
   auto_discover: bool
   filter_keys_only: bool
   keystates:
-    - str?
+    - "list(PRESS|RELEASE|REPEAT)"
   devices:
     - str?
   enabled_devices:
