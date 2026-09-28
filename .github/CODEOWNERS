@@ -1,0 +1,11 @@
+# Supply-chain-critical paths: changes need @odtgit's approval (owner-review ruleset).
+/.github/ @odtgit
+/Dockerfile @odtgit
+/config.yaml @odtgit
+/repository.yaml @odtgit
+/pyproject.toml @odtgit
+/custom_components/*/manifest.json @odtgit
+/hacs.json @odtgit
+/scripts/ @odtgit
+/run.sh @odtgit
+/evmqtt.service @odtgit

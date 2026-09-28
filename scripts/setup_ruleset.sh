@@ -1,17 +1,23 @@
 #!/usr/bin/env bash
-# Create or update the master branch and v* tag rulesets. Run by hand after review; nothing runs this automatically.
+# Create or update the master rulesets (master-protection, owner-review) and the v* tag ruleset.
+# Run by hand after review; nothing runs this automatically.
 # Usage: scripts/setup_ruleset.sh --deploy-key-id ID [--dry-run] [--repo owner/name] [--workflows-from DIR]
 # --workflows-from reads ci.yml and pr-title-lint.yml from a local directory instead of master (previews).
 #
-# The only bypass actor is DeployKey. The rulesets API takes no id for it (actor_id must be null),
-# so the bypass covers every deploy key with write access. The script therefore requires that
-# --deploy-key-id is the repository's only write deploy key.
+# master-protection and release-tags: the only bypass actor is DeployKey (the release bot). The rulesets
+# API takes no id for it (actor_id must be null), so the bypass covers every write deploy key; the script
+# requires --deploy-key-id to be the repository's only write deploy key.
+# owner-review: code owner approval (.github/CODEOWNERS). Bypass: repository admin role, pull requests only,
+# so the owner's own PRs merge without self-approval but still need every check in master-protection;
+# plus DeployKey, because the release bot pushes release: commits that touch owned files.
 set -euo pipefail
 
 REPO="odtgit/evmqtt"
 BRANCH="master"
 BRANCH_RULESET="master-protection"
 TAG_RULESET="release-tags"
+OWNER_RULESET="owner-review"
+ADMIN_ROLE_ID=5
 ACTIONS_APP_ID=15368
 KEY_ID=""
 DRY_RUN=0
@@ -58,7 +64,8 @@ title=$(fetch .github/workflows/pr-title-lint.yml)
 [ -n "$title" ] || echo "# WARNING: no pr-title-lint.yml on $BRANCH, title lint not required" >&2
 
 payloads=$(CI_YML="$ci" TITLE_YML="$title" BRANCH="$BRANCH" APP="$ACTIONS_APP_ID" \
-  BRANCH_RULESET="$BRANCH_RULESET" TAG_RULESET="$TAG_RULESET" python3 - <<'PY'
+  BRANCH_RULESET="$BRANCH_RULESET" TAG_RULESET="$TAG_RULESET" OWNER_RULESET="$OWNER_RULESET" \
+  ADMIN_ROLE_ID="$ADMIN_ROLE_ID" python3 - <<'PY'
 import json, os, re, sys
 
 
@@ -124,8 +131,29 @@ tag = {
     "bypass_actors": bypass,
     "rules": [{"type": "creation"}, {"type": "update"}, {"type": "deletion"}],
 }
+owner = {
+    "name": os.environ["OWNER_RULESET"],
+    "target": "branch",
+    "enforcement": "active",
+    "conditions": {"ref_name": {"include": [f"refs/heads/{os.environ['BRANCH']}"], "exclude": []}},
+    "bypass_actors": [
+        {"actor_id": int(os.environ["ADMIN_ROLE_ID"]), "actor_type": "RepositoryRole", "bypass_mode": "pull_request"},
+        *bypass,
+    ],
+    "rules": [
+        {"type": "pull_request", "parameters": {
+            "required_approving_review_count": 1,
+            "dismiss_stale_reviews_on_push": True,
+            "require_code_owner_review": True,
+            "require_last_push_approval": True,
+            "required_review_thread_resolution": False,
+            "allowed_merge_methods": ["squash"],
+        }},
+    ],
+}
 print(json.dumps(branch))
 print(json.dumps(tag))
+print(json.dumps(owner))
 PY
 )
 
@@ -146,3 +174,18 @@ apply() {
 
 apply "$BRANCH_RULESET" "$(echo "$payloads" | sed -n 1p)"
 apply "$TAG_RULESET" "$(echo "$payloads" | sed -n 2p)"
+apply "$OWNER_RULESET" "$(echo "$payloads" | sed -n 3p)"
+
+# RepositoryRole id 5 = admin is not documented in the REST reference; read it back and fail loudly if wrong.
+if [ "$DRY_RUN" = 1 ]; then
+  echo "# after applying, the script checks that $OWNER_RULESET's RepositoryRole $ADMIN_ROLE_ID resolves to admin" >&2
+else
+  role=$(gh api graphql -F owner="${REPO%/*}" -F name="${REPO#*/}" -f query='
+    query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) {
+      rulesets(first: 50) { nodes { name bypassActors(first: 20) { nodes { repositoryRoleName } } } } } }' \
+    --jq ".data.repository.rulesets.nodes[] | select(.name == \"$OWNER_RULESET\") | .bypassActors.nodes[].repositoryRoleName // empty")
+  case "$(echo "$role" | tr '[:upper:]' '[:lower:]')" in
+    admin) echo "verified: $OWNER_RULESET bypass role $ADMIN_ROLE_ID is admin" ;;
+    *) echo "ERROR: $OWNER_RULESET bypass role $ADMIN_ROLE_ID resolved to '$role', not admin. Fix it in Settings > Rules." >&2; exit 1 ;;
+  esac
+fi

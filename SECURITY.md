@@ -62,7 +62,21 @@ The gate uses the repository secret `CLAUDE_CODE_OAUTH_TOKEN`, a Claude subscrip
 - Rulesets (`scripts/setup_ruleset.sh --deploy-key-id ID`, applied by hand):
   - `master`: requires a PR, squash merges and a linear history; blocks force pushes and deletion; applies to admins. Required checks, each bound to the GitHub Actions app so no other app can satisfy them: `security-review`, `dependency-review`, lint, typecheck, gate-tests, the test matrix, the PR title lint job, and tests-ha/hassfest/hacs when present. Check names are read from master's workflows when the script runs.
   - `refs/tags/v*`: creation, update and deletion are blocked.
+  - `owner-review` (a second ruleset on master): a PR needs one approval, code owner approval for paths in `.github/CODEOWNERS`, approval of the latest push, and stale approvals are dismissed on push. Its bypass actors are the repository admin role in pull-request mode, so the owner's own PRs merge without a self-approval (which GitHub does not allow anyway), and the release deploy key, whose `release:` commits touch owned files. `master-protection` has no admin bypass, so the owner's PRs still need every required check, `security-review` included.
   - The only bypass actor on both is `DeployKey`. The release bot pushes its `release:` commit and `v*` tag with a write deploy key (secret `RELEASE_DEPLOY_KEY` in the `release` environment, restricted to master). GitHub Actions is deliberately not a bypass actor: that would let any workflow with `contents: write` push to master unreviewed. The rulesets API takes no id for a DeployKey bypass, so it covers every write deploy key. The script refuses to apply if any write deploy key other than the given id exists.
+
+## Workflow and supply-chain changes
+
+A PR that edits workflows, the gate, packaging or release files is the most direct way to compromise this repository. Four layers apply:
+
+1. The gate reviews such PRs in strict mode, with the pre-change content and a medium blocking threshold. Its own code always comes from master.
+2. Deterministic pre-checks fail new `pull_request_target`/`workflow_run` triggers, downloads piped to a shell, and anything that could impersonate the `security-review` check.
+3. `.github/CODEOWNERS` assigns the paths below to @odtgit, and the `owner-review` ruleset makes his approval mandatory for anyone else's PR. The owned paths are `/.github/` (workflows, the gate, Dependabot config, CODEOWNERS itself), `/Dockerfile`, `/config.yaml` and `/repository.yaml` (add-on image and privileges), `/pyproject.toml` (dependencies, build backend, entry points), `/custom_components/*/manifest.json` and `/hacs.json` (HACS requirements), `/scripts/` (version and release tooling run in CI), `/run.sh` (container entrypoint) and `/evmqtt.service` (systemd unit installed as a service).
+4. Fork `pull_request` workflows need the owner's approval to run ("Require approval for all outside collaborators"), so a fork cannot run changed workflow code in CI before he has read it.
+
+Rulesets that target the same branch aggregate, and the most restrictive rule applies (GitHub docs, "About rulesets"). Bypass lists are configured per ruleset. The docs do not state in so many words that bypassing one ruleset leaves the others in force. The design relies on that, so check it once after applying: open a PR as the owner and confirm that the merge box offers the owner-review bypass but still waits for `security-review`.
+
+Push rulesets, which can block pushes that touch given file paths, would be a stricter option. GitHub offers them only for private and internal repositories, so they are not available for this public repository on a personal account.
 
 ## Evaluation
 
@@ -83,7 +97,7 @@ The first run passed only low on the recorder fixture. The prompts were then tun
 - **Prompt injection can still sway the verdict.** Both passes read attacker-controlled text. Mitigations: nonce-tagged data blocks, explicit rules that injection attempts are themselves high findings, an independent verifier told the first pass may be compromised, and deterministic checks that do not depend on the model. None of these is a guarantee.
 - **Model judgement.** A subtle backdoor can be rated low or missed, and benign PRs can fail. A human should still read anything touching input handling, networking, workflows or packaging.
 - **Cost and abuse.** Approval settings for fork workflows do not apply to `pull_request_target` ("Workflows triggered by `pull_request_target` events are run in the context of the base branch ... will always run, regardless of approval settings", GitHub docs). Anyone can open PRs that spend the subscription's usage. Size limits, draft deferral and per-PR cancellation bound this, but they do not prevent it.
-- **Check-name spoofing.** A PR can add a `pull_request` workflow with a job named `security-review`. The pre-check fails such PRs, and "Require approval for all outside collaborators" stops fork `pull_request` workflows from running until a maintainer approves them. Do not approve workflow runs on a fork PR that changes `.github/` before reading the gate's comment.
+- **Check-name spoofing.** A PR can add a `pull_request` workflow with a job named `security-review`. The pre-check fails such PRs, and "Require approval for all outside collaborators" stops fork `pull_request` workflows from running until a maintainer approves them. Do not approve workflow runs on a fork PR that changes `.github/` before reading the gate's comment. Merging such a PR also needs the owner's code owner approval.
 - **Base retargeting.** Changing a PR's base branch does not re-run the gate. Close and reopen the PR (or push) after retargeting.
 - **Merge skew.** The review sees the PR against its merge base. The ruleset does not require branches to be up to date, so an interaction with newer master commits is not reviewed.
 - **Bypass actor.** Anyone holding a write deploy key can push to master and create `v*` tags without review. Keep exactly one, stored only in the `release` environment, and never add another write deploy key without re-running the script check.
