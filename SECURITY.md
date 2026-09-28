@@ -6,7 +6,7 @@ Use GitHub's private vulnerability reporting (Security tab, "Report a vulnerabil
 
 ## Why this repository is gated
 
-evmqtt reads raw input events on Home Assistant hosts: every key typed on a watched keyboard, passwords included. The add-on runs with host networking, full access and SYS_RAWIO. Merges to master are released automatically to PyPI, GHCR and Home Assistant users (add-on and HACS). A malicious or careless change can therefore reach many hosts with no further human step. The only control before merge is the `security-review` check described here, backed by the ruleset in `scripts/setup_ruleset.sh`.
+evmqtt reads raw input events on Home Assistant hosts: every key typed on a watched keyboard, passwords included. The add-on runs with host networking, full access and SYS_RAWIO. Merges to master are released automatically to PyPI, GHCR and Home Assistant users (add-on and HACS). A malicious or careless change can therefore reach many hosts with no further human step. The only control before merge is the `security-review` check described here, backed by the rulesets in `scripts/setup_ruleset.sh`.
 
 ## The gate
 
@@ -37,6 +37,7 @@ Workflow: `.github/workflows/security-review.yml`. Code: `.github/security-revie
 - PR content (metadata, commit messages, patches, post-change file contents, and pre-change contents of sensitive files) is fetched from the GitHub REST API as data. PR code is never checked out, installed, imported or executed in any job that has secrets.
 - Permissions: the workflow default is `{}`. The review job has `contents: read` and `pull-requests: read`. The comment job has `pull-requests: write` and never sees the Claude token. Concurrency is one group per PR with cancel-in-progress, so a new push cancels the stale review.
 - No caches are used in `pull_request_target` jobs, to avoid cache poisoning.
+- Every workflow declares its token permissions explicitly and does not rely on repository defaults.
 
 ### No agentic tools
 
@@ -58,7 +59,10 @@ The gate uses the repository secret `CLAUDE_CODE_OAUTH_TOKEN`, a Claude subscrip
 - Every third-party action in every workflow is pinned to a full commit SHA with a `# vX.Y.Z` comment. Each SHA was checked against the upstream tag with `gh api`.
 - `dependency-review` fails PRs that add dependencies with high-severity advisories.
 - Dependabot opens weekly PRs for GitHub Actions and pip. They go through the same gate.
-- The ruleset (`scripts/setup_ruleset.sh`, applied by hand) makes the following checks required on master, each bound to the GitHub Actions app so no other app can satisfy them: `security-review`, `dependency-review`, lint, typecheck, gate-tests, the test matrix, and tests-ha/hassfest/hacs when present. It also requires a PR, a linear history and squash merges, blocks force pushes and deletion, and applies to admins. The only bypass actor is GitHub Actions (app 15368), so the auto-release bot can push its `release:` commit.
+- Rulesets (`scripts/setup_ruleset.sh --deploy-key-id ID`, applied by hand):
+  - `master`: requires a PR, squash merges and a linear history; blocks force pushes and deletion; applies to admins. Required checks, each bound to the GitHub Actions app so no other app can satisfy them: `security-review`, `dependency-review`, lint, typecheck, gate-tests, the test matrix, the PR title lint job, and tests-ha/hassfest/hacs when present. Check names are read from master's workflows when the script runs.
+  - `refs/tags/v*`: creation, update and deletion are blocked.
+  - The only bypass actor on both is `DeployKey`. The release bot pushes its `release:` commit and `v*` tag with a write deploy key (secret `RELEASE_DEPLOY_KEY` in the `release` environment, restricted to master). GitHub Actions is deliberately not a bypass actor: that would let any workflow with `contents: write` push to master unreviewed. The rulesets API takes no id for a DeployKey bypass, so it covers every write deploy key. The script refuses to apply if any write deploy key other than the given id exists.
 
 ## Evaluation
 
@@ -82,5 +86,5 @@ The first run passed only low on the recorder fixture. The prompts were then tun
 - **Check-name spoofing.** A PR can add a `pull_request` workflow with a job named `security-review`. The pre-check fails such PRs, and "Require approval for all outside collaborators" stops fork `pull_request` workflows from running until a maintainer approves them. Do not approve workflow runs on a fork PR that changes `.github/` before reading the gate's comment.
 - **Base retargeting.** Changing a PR's base branch does not re-run the gate. Close and reopen the PR (or push) after retargeting.
 - **Merge skew.** The review sees the PR against its merge base. The ruleset does not require branches to be up to date, so an interaction with newer master commits is not reviewed.
-- **Bypass actor.** Any workflow on master that has `contents: write` can push past the ruleset through the GitHub Actions bypass. Keep write permissions limited to the release job.
+- **Bypass actor.** Anyone holding a write deploy key can push to master and create `v*` tags without review. Keep exactly one, stored only in the `release` environment, and never add another write deploy key without re-running the script check.
 - **Unreviewed inputs.** Images are not shown to the model. `pip install` of lint and test tools in CI is unpinned.
