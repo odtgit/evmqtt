@@ -99,6 +99,47 @@ jobs:
       - run: pip install -e ".[mqtt,dev]"
       - run: pytest -q -m broker
 
+  tests-ha:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+          cache: pip
+      - run: pip install -r tests_ha/requirements.txt -e ".[mqtt]" ruff==0.16.9
+      - run: ruff check --target-version py313 custom_components tests_ha scripts
+      - run: ruff format --check --target-version py313 custom_components tests_ha scripts
+      - run: pytest -q --cov=custom_components.evmqtt --cov-report=term-missing --cov-fail-under=90
+        working-directory: tests_ha
+
+  hassfest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: home-assistant/actions/hassfest@06749dd8c0b54f350bc69c8752456cee498808a3 # master 2026-09-27
+
+  hacs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: hacs/action@1ebf01c408f29afcb6406bd431bc98fd8cbb15aa # main 2026-06-08
+        with:
+          category: integration
+          ignore: topics
+
+  ha-integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: sudo modprobe uinput
+      - run: pip install -e ".[mqtt]"
+      - run: docker pull ghcr.io/home-assistant/home-assistant:2026.9.4
+      - run: sudo -E env "PATH=$PATH" EVMQTT_UINPUT=1 python scripts/ha_integration_validate.py --uinput --image ghcr.io/home-assistant/home-assistant:2026.9.4
+
   image-build:
     runs-on: ${{ matrix.os }}
     permissions:

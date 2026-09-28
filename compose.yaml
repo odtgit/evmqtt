@@ -2,9 +2,9 @@ services:
   evmqtt:
     hostname: evmqtt
     container_name: evmqtt
-    build:
-      context: .
-    image: odtdock/evmqtt
+    image: ghcr.io/odtgit/evmqtt:latest
+    # build:
+    #   context: .
     restart: unless-stopped
     volumes:
       - "./config.json:/data/config.json:ro"
