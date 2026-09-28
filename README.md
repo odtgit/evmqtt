@@ -285,7 +285,7 @@ Device discovery (`homeassistant/device/evmqtt_pi_gpio-ir-recv-1a2b3c4d/config`)
     "model_id": "046d:c52b",
     "via_device": "evmqtt_pi"
   },
-  "origin": {"name": "evmqtt", "sw_version": "2.0.0", "support_url": "https://github.com/odtgit/evmqtt"},
+  "origin": {"name": "evmqtt", "sw_version": "2.1.0", "support_url": "https://github.com/odtgit/evmqtt"},
   "availability": [
     {"topic": "evmqtt/pi/status", "payload_available": "online", "payload_not_available": "offline"},
     {"topic": "evmqtt/pi/gpio-ir-recv-1a2b3c4d/availability", "payload_available": "online", "payload_not_available": "offline"}
@@ -399,8 +399,9 @@ move when `eventN` changes.
 - `devices` and `enabled_devices` accept ids and names as well as paths, and
   `devices` no longer requires `auto_discover: false`.
 - `auto_discover` now defaults to `true` in `config.json` too.
-- Only devices listed in `devices` or `enabled_devices` are grabbed. 1.x and
-  2.0.0 grabbed every device they used; list your devices to keep that.
+- Since 2.1.0, only devices listed in `devices` or `enabled_devices` are
+  grabbed. 1.x and 2.0.0 grabbed every device they used; list your devices
+  to keep that.
 - Add-on: `mqtt_host` can be left empty to use the Mosquitto add-on.
 - Enable/disable is now kept in a state file instead of the retained switch
   topic; the first 2.0 start seeds it from `enabled_devices`.
