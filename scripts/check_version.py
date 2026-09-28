@@ -13,9 +13,9 @@ try:
 except ImportError:
     import tomli as tomllib  # type: ignore[no-redef]
 
+_root_override = os.environ.get("EVMQTT_CHECK_VERSION_ROOT", "")
 ROOT = (
-    Path(os.environ.get("EVMQTT_CHECK_VERSION_ROOT", ""))
-    or Path(__file__).resolve().parent.parent
+    Path(_root_override) if _root_override else Path(__file__).resolve().parent.parent
 )
 
 

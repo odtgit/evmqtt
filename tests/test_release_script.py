@@ -265,3 +265,87 @@ def test_classify_non_conventional_subject_is_none() -> None:
 def test_classify_chore_and_ci_and_build_are_none() -> None:
     for prefix in ("chore", "ci", "build", "refactor", "style", "test", "release"):
         assert release.classify(f"{prefix}: something", "") == "none"
+
+
+def test_apply_rejects_non_numeric_version(repo: Path) -> None:
+    with pytest.raises(ValueError):
+        release.apply_version("1.2.3-rc1", repo)
+    with pytest.raises(ValueError):
+        release.apply_version("not-a-version", repo)
+
+
+def test_last_tag_skips_non_numeric_tags(repo: Path) -> None:
+    commit(repo, "feat: prerelease work")
+    git(repo, "tag", "v1.1.0-rc1")
+    assert release.last_tag(repo) == "v1.0.0"
+    assert release.cmd_next_version(repo) == "1.1.0"
+
+
+def test_last_tag_picks_highest_semver_not_nearest(repo: Path) -> None:
+    git(repo, "tag", "v0.9.0")
+    assert release.last_tag(repo) == "v1.0.0"
+
+
+def test_sanitize_strips_images_and_html_and_escapes_mentions() -> None:
+    text = release.sanitize_text(
+        "see ![screenshot](http://x/y.png) <script>alert(1)</script> cc @someone"
+    )
+    assert "![" not in text
+    assert "<script>" not in text
+    assert "`@someone`" in text
+    assert " cc @someone" not in text
+
+
+def test_changelog_entry_sanitized(repo: Path) -> None:
+    commit(repo, "feat: fix rendering for @someone <b>bold</b>")
+    release.apply_version("1.1.0", repo)
+    text = (repo / "CHANGELOG.md").read_text()
+    assert "`@someone`" in text
+    assert "<b>" not in text
+
+
+def test_pending_tag_version_none_when_head_is_not_release_commit(repo: Path) -> None:
+    commit(repo, "feat: something")
+    assert release.pending_tag_version(repo) is None
+
+
+def test_pending_tag_version_detects_untagged_release_commit(repo: Path) -> None:
+    git(repo, "config", "user.email", release.RELEASE_IDENTITY_EMAIL)
+    git(repo, "config", "user.name", release.RELEASE_IDENTITY_NAME)
+    commit(repo, "release: 1.1.0 [skip ci]")
+    assert release.pending_tag_version(repo) == "1.1.0"
+
+
+def test_pending_tag_version_none_once_tagged(repo: Path) -> None:
+    git(repo, "config", "user.email", release.RELEASE_IDENTITY_EMAIL)
+    git(repo, "config", "user.name", release.RELEASE_IDENTITY_NAME)
+    commit(repo, "release: 1.1.0 [skip ci]")
+    git(repo, "tag", "v1.1.0")
+    assert release.pending_tag_version(repo) is None
+
+
+def test_pending_tag_version_ignores_release_commit_from_other_author(
+    repo: Path,
+) -> None:
+    commit(repo, "release: 1.1.0 [skip ci]")
+    assert release.pending_tag_version(repo) is None
+
+
+def test_is_release_commit_true_for_matching_identity_and_version(repo: Path) -> None:
+    git(repo, "config", "user.email", release.RELEASE_IDENTITY_EMAIL)
+    git(repo, "config", "user.name", release.RELEASE_IDENTITY_NAME)
+    sha = commit(repo, "release: 1.1.0 [skip ci]")
+    assert release.is_release_commit(sha, "1.1.0", repo) is True
+    assert release.is_release_commit(sha, "1.2.0", repo) is False
+
+
+def test_is_release_commit_false_for_wrong_author(repo: Path) -> None:
+    sha = commit(repo, "release: 1.1.0 [skip ci]")
+    assert release.is_release_commit(sha, "1.1.0", repo) is False
+
+
+def test_is_release_commit_false_for_non_release_subject(repo: Path) -> None:
+    git(repo, "config", "user.email", release.RELEASE_IDENTITY_EMAIL)
+    git(repo, "config", "user.name", release.RELEASE_IDENTITY_NAME)
+    sha = commit(repo, "feat: not a release commit")
+    assert release.is_release_commit(sha, "1.1.0", repo) is False

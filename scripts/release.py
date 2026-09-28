@@ -24,11 +24,24 @@ CONVENTIONAL_RE = re.compile(
 BREAKING_FOOTER_RE = re.compile(r"^BREAKING[ -]CHANGE:", re.MULTILINE)
 MERGE_PR_RE = re.compile(r"^Merge pull request #(\d+) from")
 TRAILING_PR_RE = re.compile(r"\s*\(#(\d+)\)\s*$")
+VERSION_RE = re.compile(r"^\d+\.\d+\.\d+$")
+NUMERIC_TAG_RE = re.compile(r"^v(\d+\.\d+\.\d+)$")
+IMAGE_MD_RE = re.compile(r"!\[[^\]]*\]\([^)]*\)")
+HTML_TAG_RE = re.compile(r"<[^>]*>")
+MENTION_RE = re.compile(r"(?<!\w)@(\w[\w-]*)")
 
 BUMP_ORDER = {"none": 0, "patch": 1, "minor": 2, "major": 3}
 PATCH_TYPES = {"fix", "perf"}
 
 CHANGELOG_HEADERS = (("major", "Breaking"), ("minor", "Features"), ("patch", "Fixes"))
+
+# Identity used for release commits. The write job authenticates via an SSH
+# deploy key (not GITHUB_TOKEN/the Actions app), so this name+email is the
+# only thing that ties a commit or tag to "the release process" for the
+# republish-validation and untagged-release-commit-recovery checks below.
+RELEASE_IDENTITY_NAME = "evmqtt-release[bot]"
+RELEASE_IDENTITY_EMAIL = "evmqtt-release-bot@users.noreply.github.com"
+RELEASE_COMMIT_RE = re.compile(r"^release: (\d+\.\d+\.\d+) \[skip ci\]$")
 
 
 class GitError(RuntimeError):
@@ -50,10 +63,19 @@ class ChangeEntry:
 
 
 def last_tag(cwd: Path) -> str | None:
+    """Highest numeric vX.Y.Z tag reachable from HEAD; non-numeric tags
+    (rc/beta/etc.) are ignored rather than crashing bump_version."""
     try:
-        return run_git("describe", "--tags", "--abbrev=0", "--match", "v*", cwd=cwd)
+        tags = run_git("tag", "--merged", "HEAD", "--list", "v*", cwd=cwd).splitlines()
     except GitError:
         return None
+    numeric = [t for t in tags if NUMERIC_TAG_RE.match(t)]
+    if not numeric:
+        return None
+    numeric.sort(
+        key=lambda t: tuple(int(p) for p in NUMERIC_TAG_RE.match(t).group(1).split("."))
+    )
+    return numeric[-1]
 
 
 def commit_subject(sha: str, cwd: Path) -> str:
@@ -172,6 +194,37 @@ def cmd_forced_version(level: str, cwd: Path) -> str:
     return bump_version(current, level)
 
 
+def pending_tag_version(cwd: Path) -> str | None:
+    """If HEAD is an untagged 'release: X.Y.Z' commit by the release
+    identity, return X.Y.Z so the caller can just tag it (recovery from a
+    push that landed but a subsequent tag push that failed)."""
+    subject = run_git("log", "-1", "--format=%s", cwd=cwd)
+    match = RELEASE_COMMIT_RE.match(subject)
+    if not match:
+        return None
+    email = run_git("log", "-1", "--format=%ae", cwd=cwd)
+    if email != RELEASE_IDENTITY_EMAIL:
+        return None
+    version = match.group(1)
+    try:
+        run_git("rev-parse", f"refs/tags/v{version}", cwd=cwd)
+    except GitError:
+        return version
+    return None
+
+
+def is_release_commit(sha: str, version: str, cwd: Path) -> bool:
+    """True if sha is a 'release: X.Y.Z [skip ci]' commit by the release
+    identity, matching the given version. Used to validate a tag before
+    republishing it."""
+    subject = commit_subject(sha, cwd=cwd)
+    match = RELEASE_COMMIT_RE.match(subject)
+    if not match or match.group(1) != version:
+        return False
+    email = run_git("log", "-1", "--format=%ae", sha, cwd=cwd)
+    return email == RELEASE_IDENTITY_EMAIL
+
+
 def update_pyproject(version: str, path: Path) -> bool:
     if not path.exists():
         return False
@@ -212,10 +265,18 @@ def update_manifest_json(version: str, path: Path) -> bool:
     return True
 
 
+def sanitize_text(text: str) -> str:
+    text = IMAGE_MD_RE.sub("", text)
+    text = HTML_TAG_RE.sub("", text)
+    text = MENTION_RE.sub(lambda m: f"`@{m.group(1)}`", text)
+    return text.strip()
+
+
 def format_entry(entry: ChangeEntry) -> str:
     match = CONVENTIONAL_RE.match(entry.subject)
     desc = match.group("desc") if match else entry.subject
     desc = TRAILING_PR_RE.sub("", desc).strip()
+    desc = sanitize_text(desc)
     if entry.pr_number:
         return f"- {desc} (#{entry.pr_number})"
     return f"- {desc}"
@@ -266,6 +327,8 @@ def run_check_version(cwd: Path) -> None:
 
 
 def apply_version(version: str, cwd: Path) -> list[Path]:
+    if not VERSION_RE.match(version):
+        raise ValueError(f"invalid version {version!r}, expected X.Y.Z")
     changed: list[Path] = []
     if update_pyproject(version, cwd / "pyproject.toml"):
         changed.append(cwd / "pyproject.toml")
@@ -311,6 +374,18 @@ def main(argv: list[str]) -> int:
             return 2
         apply_version(argv[2], ROOT)
         return 0
+    if cmd == "pending-retag":
+        version = pending_tag_version(ROOT)
+        if version:
+            print(version)
+        return 0
+    if cmd == "verify-release-commit":
+        if len(argv) < 4:
+            print("usage: release.py verify-release-commit SHA X.Y.Z", file=sys.stderr)
+            return 2
+        ok = is_release_commit(argv[2], argv[3], ROOT)
+        print("ok" if ok else "not-a-release-commit")
+        return 0 if ok else 1
     print(f"unknown command: {cmd}", file=sys.stderr)
     return 2
 
