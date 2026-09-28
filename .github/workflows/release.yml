@@ -95,6 +95,12 @@ jobs:
           set -euo pipefail
           echo "base_sha=$(git rev-parse HEAD)" >>"$GITHUB_OUTPUT"
           python scripts/release.py apply "$VERSION"
+          # intent-to-add so a brand-new CHANGELOG.md (untracked) shows up
+          # in the diff too; plain `git diff` ignores untracked files.
+          git add -N pyproject.toml config.yaml CHANGELOG.md
+          if [ -f custom_components/evmqtt/manifest.json ]; then
+            git add -N custom_components/evmqtt/manifest.json
+          fi
           git diff > release.patch
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
