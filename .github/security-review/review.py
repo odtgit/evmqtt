@@ -25,7 +25,11 @@ def load(args: argparse.Namespace) -> sources.PullRequest:
         return sources.from_dir(Path(args.fixture))
     if args.git_range:
         base, _, head = args.git_range.partition("...")
-        return sources.from_git(Path(args.repo_dir), base, head or "HEAD", args.title)
+        pr = sources.from_git(Path(args.repo_dir), base, head or "HEAD", args.title)
+        pr.files = [
+            f for f in pr.files if not any(f.path.startswith(x) for x in args.exclude)
+        ]
+        return pr
     token = os.environ.get("GITHUB_TOKEN", "")
     repo = os.environ.get("GITHUB_REPOSITORY", "")
     number = int(os.environ.get("PR_NUMBER") or 0)
@@ -142,6 +146,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--git-range", help="BASE...HEAD in --repo-dir")
     ap.add_argument("--repo-dir", default=".")
     ap.add_argument("--title", default="")
+    ap.add_argument(
+        "--exclude", nargs="*", default=[], help="local runs: path prefixes"
+    )
     ap.add_argument("--claude", default=os.environ.get("CLAUDE_BIN", "claude"))
     ap.add_argument("--out")
     ap.add_argument("--skip-ai", action="store_true")

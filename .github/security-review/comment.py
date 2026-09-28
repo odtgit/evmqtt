@@ -13,7 +13,7 @@ from typing import Any
 MARKER = "<!-- evmqtt-security-review -->"
 BOT = "github-actions[bot]"
 API = "https://api.github.com"
-_HIDDEN = re.compile("[؜​-‏ -‮⁦-⁩﻿]")
+_HIDDEN = re.compile("[\u061c\u200b-\u200f\u2028-\u202e\u2066-\u2069\ufeff]")
 
 
 def clean(value: Any, limit: int = 300) -> str:

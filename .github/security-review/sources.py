@@ -196,10 +196,13 @@ def from_git(repo_dir: Path, base: str, head: str, title: str = "") -> PullReque
         status = status_map.get(code[0], "modified")
         paths = [p for p in (prev, path) if p]
         patch = _git(repo_dir, "diff", "-M", merge_base, head, "--", *paths)
+        numstat = _git(
+            repo_dir, "diff", "--numstat", "-M", merge_base, head, "--", *paths
+        )
         cf = ChangedFile(
             path=path,
             status=status,
-            patch=None if b"Binary files" in patch else hunks_only(patch.decode()),
+            patch=None if numstat.startswith(b"-\t-\t") else hunks_only(patch.decode()),
             previous_path=prev,
         )
         if status != "removed":

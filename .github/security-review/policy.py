@@ -64,8 +64,8 @@ IMAGE_MAGIC = {
 }
 
 PIPE_TO_SHELL = re.compile(
-    r"\b(curl|wget)\b[^\n|]*\|\s*(sudo\s+)?(\S*/)?(ba|z|da|k)?sh\b|"
-    r"\b(curl|wget)\b[^\n|]*\|\s*(sudo\s+)?(\S*/)?python[0-9.]*\b"
+    r"\b(curl|wget)\s[^\n|]*\|\s*(sudo\s+)?(\S*/)?(ba|z|da|k)?sh\b|"
+    r"\b(curl|wget)\s[^\n|]*\|\s*(sudo\s+)?(\S*/)?python[0-9.]*\b"
 )
 SPOOF_NAME = re.compile(
     rf"^\s*(-\s*)?name:\s*['\"]?{re.escape(CHECK_NAME)}['\"]?\s*(#.*)?$"

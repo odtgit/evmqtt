@@ -36,8 +36,8 @@ def finding(status="confirmed", **kw):
 
 
 def test_clean_neutralises_markdown_html_mentions_and_hidden_chars():
-    out = comment.clean("@owner <img src=x> [x](https://e.invalid) `c` | *b* ‮!")
-    for bad in ("@", "<", ">", "[", "]", "`", "|", "*", "‮", "!"):
+    out = comment.clean("@owner <img src=x> [x](https://e.invalid) `c` | *b* \u202e!")
+    for bad in ("@", "<", ">", "[", "]", "`", "|", "*", "\u202e", "!"):
         assert bad not in out
 
 

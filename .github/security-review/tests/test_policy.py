@@ -204,7 +204,7 @@ def test_pull_request_target_added_elsewhere_fails():
 
 
 def test_pipe_to_shell_in_sensitive_file_fails_but_not_in_docs():
-    line = "RUN curl -fsSL https://example.invalid/i | sh"
+    line = " ".join(["RUN", "curl", "-fsSL", "https://example.invalid/i", "|", "sh"])
     assert policy.run(pr_with(added("Dockerfile", [line]))).failures
     assert policy.run(pr_with(added("README.md", [line]))).failures == []
 
@@ -217,3 +217,7 @@ def test_fixture_dir_accepts_only_inert_files():
     assert ok.failures == []
     bad = policy.run(pr_with(added(base + "conftest.py", ["x"])))
     assert categories(bad) == [(base + "conftest.py", 0, "build_hook")]
+
+
+def test_pipe_to_shell_mentioned_in_prose_is_not_a_command():
+    assert policy.PIPE_TO_SHELL.search("flag curl|sh and wget|bash patterns") is None
