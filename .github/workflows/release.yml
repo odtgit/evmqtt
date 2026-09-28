@@ -12,6 +12,12 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
+      - name: Require a vX.Y.Z tag
+        if: github.event_name == 'release'
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+ ]] || { echo "::error::release tag '$TAG' must be vX.Y.Z (pypi environment only allows v* tags)"; exit 1; }
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6
         with:
