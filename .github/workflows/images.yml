@@ -24,9 +24,6 @@ env:
 jobs:
   image-build:
     runs-on: ${{ matrix.os }}
-    permissions:
-      contents: read
-      packages: write
     strategy:
       fail-fast: true
       matrix:
@@ -143,9 +140,6 @@ jobs:
   merge:
     if: inputs.push
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
     needs:
       - image-build
     strategy:
