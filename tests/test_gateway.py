@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -548,6 +549,47 @@ async def test_default_selection_excludes_virtual_mice_and_power_buttons(
     try:
         names = sorted(d.info.name for d in gateway.devices.values())
         assert names == ["Kbd A", "Mouse", "keyd virtual keyboard"]
+    finally:
+        await gateway.stop()
+
+
+async def test_default_selection_keeps_bluetooth_le_devices_behind_uhid(
+    fake_evdev, fake_mqtt, sysfs, tmp_path
+) -> None:
+    """#20: BlueZ HoG remotes live under /sys/devices/virtual/misc/uhid."""
+    fake_evdev.add(
+        "/dev/input/event23",
+        name="BT Remote",
+        capabilities=keyboard_capabilities(),
+        bustype=0x05,
+    )
+    sysfs.add("event23", uhid=True)
+    gateway = await start(make_config(tmp_path))
+    try:
+        assert [d.info.name for d in gateway.devices.values()] == ["BT Remote"]
+    finally:
+        await gateway.stop()
+
+
+@pytest.mark.parametrize("option", ["devices", "enabled_devices"])
+async def test_selectors_follow_symlinks(
+    fake_evdev, fake_mqtt, tmp_path, option
+) -> None:
+    """#20: a udev symlink such as /dev/input/rc selects its eventN."""
+    node = tmp_path / "input" / "event23"
+    node.parent.mkdir()
+    node.touch()
+    (node.parent / "rc").symlink_to(node.name)
+    real = os.path.realpath(node)
+    a = add_kbd(fake_evdev, "/dev/input/event0", "Kbd A")
+    rc = add_kbd(fake_evdev, real, "RC")
+    overrides: dict[str, object] = {option: [str(node.parent / "rc")]}
+    if option == "devices":
+        overrides["auto_discover"] = False
+    gateway = await start(make_config(tmp_path, **overrides))
+    try:
+        assert rc.grabbed
+        assert not a.grabbed
     finally:
         await gateway.stop()
 

@@ -33,7 +33,13 @@ CLEANUP_WINDOW = 3.0
 
 
 def matches(info: DeviceInfo, selectors: tuple[str, ...]) -> bool:
-    return any(s in (info.id, info.path, info.name) for s in selectors)
+    """By id, name or path; a path may be a symlink (udev's /dev/input/by-id)."""
+    for s in selectors:
+        if s in (info.id, info.path, info.name):
+            return True
+        if s.startswith("/") and os.path.realpath(s) == info.path:
+            return True
+    return False
 
 
 @dataclass

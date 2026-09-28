@@ -69,7 +69,15 @@ docker run -d \
   evmqtt
 ```
 
-Or use Docker Compose (also expects a `config.json` created from `config.example.json` as above):
+`c 13:* rw` gives the container every input device, and with the default
+selection evmqtt grabs every keyboard it finds, including the one on the
+host's console. On a machine with a keyboard you still need, either list the
+device you want in `devices` (with `"auto_discover": false`) or
+`enabled_devices`, or pass only that device instead of the cgroup rule
+(`--device /dev/input/rc`; a device passed this way is not seen again after it
+is replugged). Paths may be udev symlinks such as `/dev/input/by-id/...`.
+
+Or use Docker Compose (also expects a `config.json` created from `config.example.json` as above; the same caution applies):
 
 ```bash
 docker compose up -d
@@ -167,7 +175,11 @@ so mice, power buttons and the video bus are left alone. Virtual devices
 (bus `VIRTUAL` or created through uinput, like keyd's
 `keyd virtual keyboard` or ydotool) are always skipped unless listed in
 `devices` or `enabled_devices`: grabbing keyd's output device takes away all
-keyboard input on a desktop.
+keyboard input on a desktop. Bluetooth LE keyboards and remotes, which BlueZ
+creates through uhid, are not treated as virtual.
+
+In `devices` and `enabled_devices` a path may also be a symlink to the event
+node, such as a udev rule's `/dev/input/rc` or `/dev/input/by-id/...`.
 
 `evmqtt --list-devices` prints every device with its stable id and whether
 it is selected by default:

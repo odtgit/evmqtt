@@ -14,6 +14,9 @@ services:
     environment:
       TZ: Europe/Stockholm
       STATE_DIRECTORY: /var/lib/evmqtt
+    # Every input device, hotplug included. evmqtt grabs every keyboard it
+    # selects: on a host with a console keyboard, set enabled_devices or
+    # devices in config.json (see README, Device selection).
     device_cgroup_rules:
       - "c 13:* rw"
     network_mode: host
