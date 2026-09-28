@@ -292,7 +292,7 @@ def parse_stream(
             f"CLI error: {result.get('subtype')} api_status={result.get('api_error_status')}"
         )
     models = set((result.get("modelUsage") or {}).keys())
-    if models and MODEL not in models:
+    if models != {MODEL}:
         raise LLMError(f"unexpected model(s) {sorted(models)}")
     out = result.get("structured_output")
     if out is None:

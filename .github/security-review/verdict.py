@@ -19,7 +19,8 @@ def merge(p1: dict[str, Any], p2: dict[str, Any]) -> list[dict[str, Any]]:
     for a in p2.get("assessments", []):
         i = a["index"]
         prev = by_index.get(i)
-        if prev is None or RANK[a["severity"]] > RANK[prev["severity"]]:
+        key = (a["verdict"] != "refuted", RANK[a["severity"]])
+        if prev is None or key > (prev["verdict"] != "refuted", RANK[prev["severity"]]):
             by_index[i] = a
     out = []
     for i, f in enumerate(p1.get("findings", [])):

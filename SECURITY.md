@@ -13,12 +13,12 @@ evmqtt reads raw input events on Home Assistant hosts: every key typed on a watc
 Workflow: `.github/workflows/security-review.yml`. Code: `.github/security-review/`.
 
 1. **Deterministic pre-checks** (`policy.py`, no AI, run first, hard fail):
-   - bidi and zero-width characters (U+202A..U+202E, U+2066..U+2069, U+200B..U+200F, U+FEFF, U+2028, U+2029, U+061C) in added lines, file paths, PR title or body
+   - bidi, zero-width and other invisible characters (U+202A..U+202E, U+2066..U+206F, U+200B..U+200F, U+2060..U+2064, U+FEFF, U+2028, U+2029, U+061C, U+00AD, U+034F, Hangul fillers, U+180E and the U+E0000 tag block) in added lines, file paths, PR title, body or commit messages
    - added or changed binary files, except PNG/JPEG/GIF/ICO images whose magic bytes match and that are under 1 MB
    - size limits: more than 150 files, a diff over 200k characters, review context over 800k characters, a single file over 250k characters, or a file GitHub will not diff. The author is told to split the PR.
-   - `pull_request_target` added to any workflow other than the gate, `curl|sh` style downloads in sensitive files, and any other workflow that defines a job or check named `security-review` (status spoofing)
+   - `pull_request_target` or `workflow_run` added to any workflow other than the gate, `curl|sh` style downloads in sensitive files, and any other workflow whose content mentions `security-review` at all (status spoofing)
    - files in the gate's fixture directory that are not inert `*.fx` or `meta.json`
-2. **Sensitive paths** switch the AI review to strict mode instead of failing: `.github/**`, Dockerfiles, compose files, add-on `config.yaml`/`build.yaml`/`repository.yaml`, `pyproject.toml`, `setup.*`, requirements files, `custom_components/*/manifest.json`, `hacs.json`, `run.sh`, `scripts/**`, `*.service`, `.gitattributes`, `.gitmodules`, pre-commit config and this file. In strict mode the pre-change content of those files is included and the blocking threshold drops from high to medium.
+2. **Sensitive paths** switch the AI review to strict mode instead of failing: `.github/**`, Dockerfiles, compose files, add-on `config.yaml`/`build.yaml`/`repository.yaml`, `pyproject.toml`, `setup.*`, requirements files, `custom_components/*/manifest.json`, `hacs.json`, `run.sh`, `scripts/**`, `*.service`, `.gitattributes`, `.gitmodules`, pre-commit config, Makefile/tox/nox, `conftest.py`, `sitecustomize.py`, `*.pth`, add-on `apparmor.txt`/`build.json` and this file. In strict mode the pre-change content of those files is included and the blocking threshold drops from high to medium.
 3. **Two AI passes**, both with model `claude-opus-5-5` at high effort:
    - Reviewer: finds suspicious changes with file, line, category, severity, evidence and rationale.
    - Verifier: a different system prompt. It re-derives from the diff, confirms, refutes or marks each finding uncertain, and hunts for anything the reviewer missed. It is told the reviewer may have been manipulated.
@@ -87,4 +87,5 @@ The first run passed only low on the recorder fixture. The prompts were then tun
 - **Base retargeting.** Changing a PR's base branch does not re-run the gate. Close and reopen the PR (or push) after retargeting.
 - **Merge skew.** The review sees the PR against its merge base. The ruleset does not require branches to be up to date, so an interaction with newer master commits is not reviewed.
 - **Bypass actor.** Anyone holding a write deploy key can push to master and create `v*` tags without review. Keep exactly one, stored only in the `release` environment, and never add another write deploy key without re-running the script check.
-- **Unreviewed inputs.** Images are not shown to the model. `pip install` of lint and test tools in CI is unpinned.
+- **Unreviewed inputs.** Images are not shown to the model. File modes, symlinks and mode-only changes are not visible through the API data the gate uses. `pip install` of lint and test tools in CI is unpinned.
+- **Spoofing by expression.** The spoofing pre-check matches text. A workflow that builds the job name from an expression can evade it; the AI review and fork run approval are the backstop.

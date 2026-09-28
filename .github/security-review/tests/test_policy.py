@@ -221,3 +221,26 @@ def test_fixture_dir_accepts_only_inert_files():
 
 def test_pipe_to_shell_mentioned_in_prose_is_not_a_command():
     assert policy.PIPE_TO_SHELL.search("flag curl|sh and wget|bash patterns") is None
+
+
+def test_tag_characters_and_word_joiner_fail():
+    res = policy.run(pr_with(added("a.md", [f"ok{chr(0xE0041)}", f"a{chr(0x2060)}b"])))
+    assert [i.line for i in res.failures] == [1, 2]
+
+
+def test_hidden_char_in_commit_message_fails():
+    pr = pr_with()
+    pr.commits = ["fine", f"sneaky {chr(0x200B)}"]
+    assert categories(policy.run(pr)) == [("commit 2", 0, "trojan_source")]
+
+
+def test_workflow_run_added_elsewhere_fails():
+    wf = added(".github/workflows/ci.yml", ["on:", "  workflow_run:"])
+    assert categories(policy.run(pr_with(wf)))[0][2] == "ci_workflow"
+
+
+def test_any_mention_of_gate_check_in_other_workflow_fails():
+    wf = added(
+        ".github/workflows/x.yml", ["jobs:", "  a:", "    name: 'Security-Review'"]
+    )
+    assert policy.run(pr_with(wf)).failures

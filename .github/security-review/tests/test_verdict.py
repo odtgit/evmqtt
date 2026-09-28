@@ -121,3 +121,10 @@ def test_missing_ai_result_fails():
     r = verdict.decide(NORMAL, None, None, [])
     assert r["verdict"] == "FAIL"
     assert "did not complete" in r["reasons"][0]
+
+
+def test_confirmation_beats_higher_severity_refutation():
+    a = [assess(0, "confirmed", "high"), assess(0, "refuted", "critical")]
+    r = verdict.decide(NORMAL, p1(finding("high")), p2(a), [])
+    assert r["findings"][0]["status"] == "confirmed"
+    assert r["verdict"] == "FAIL"

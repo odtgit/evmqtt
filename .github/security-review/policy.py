@@ -47,13 +47,26 @@ SENSITIVE = (
     ".gitmodules",
     ".pre-commit-config.yaml",
     "SECURITY.md",
+    "Makefile",
+    "tox.ini",
+    "noxfile.py",
+    "conftest.py",
+    "*/conftest.py",
+    "sitecustomize.py",
+    "*/sitecustomize.py",
+    "*.pth",
+    "apparmor.txt",
+    "build.json",
 )
 
 HIDDEN_CHARS = (
     set(range(0x202A, 0x202F))
-    | set(range(0x2066, 0x206A))
+    | set(range(0x2066, 0x2070))
     | set(range(0x200B, 0x2010))
-    | {0xFEFF, 0x2028, 0x2029, 0x061C}
+    | set(range(0x2060, 0x2065))
+    | set(range(0xE0000, 0xE0080))
+    | {0xFEFF, 0x2028, 0x2029, 0x061C, 0x00AD, 0x034F, 0x115F, 0x1160}
+    | {0x17B4, 0x17B5, 0x180E, 0x3164, 0xFFA0}
 )
 
 IMAGE_MAGIC = {
@@ -169,7 +182,9 @@ def run(pr: PullRequest) -> PrecheckResult:
         fail(Issue("", 0, "size", f"more than {MAX_FILES} files changed; split the PR"))
         return res
 
-    for label, text in (("PR title", pr.title), ("PR body", pr.body)):
+    meta = [("PR title", pr.title), ("PR body", pr.body)]
+    meta += [(f"commit {i + 1}", c) for i, c in enumerate(pr.commits)]
+    for label, text in meta:
         found = hidden_chars(text)
         if found:
             fail(Issue(label, 0, "trojan_source", "hidden unicode", ", ".join(found)))
@@ -257,18 +272,22 @@ def run(pr: PullRequest) -> PrecheckResult:
 
         if is_workflow(path) and path != GATE_WORKFLOW:
             for lineno, text in added:
-                if "pull_request_target" in text:
+                if "pull_request_target" in text or "workflow_run" in text:
                     fail(
                         Issue(
                             path,
                             lineno,
                             "ci_workflow",
-                            "pull_request_target added outside the gate workflow",
+                            "pull_request_target or workflow_run added outside the gate",
                             text.strip()[:160],
                         )
                     )
             for lineno, text in enumerate(lines(head_text or ""), 1):
-                if SPOOF_NAME.match(text) or SPOOF_JOB.match(text):
+                if (
+                    CHECK_NAME in text.lower()
+                    or SPOOF_NAME.match(text)
+                    or SPOOF_JOB.match(text)
+                ):
                     fail(
                         Issue(
                             path,

@@ -55,6 +55,9 @@ def test_parse_stream_accepts_valid_output():
         stream({"summary": "x"}),
         stream({"summary": "x", "findings": [], "approved": True}),
         stream(GOOD1, model="claude-haiku-4-5"),
+        stream(GOOD1).replace(
+            '"modelUsage": {"claude-opus-5-5": {}}', '"modelUsage": {}'
+        ),
         "not json",
         json.dumps(
             {"type": "result", "subtype": "success", "structured_output": GOOD1}
