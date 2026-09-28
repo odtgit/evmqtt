@@ -29,8 +29,8 @@ built locally.
 | `base_topic` | `""` | Root of all state, event and command topics. Empty means `evmqtt/<hostname>`. Must not be under `discovery_prefix`. |
 | `auto_discover` | `true` | Select keyboard-like devices automatically (no mice, power buttons, video bus or virtual devices such as keyd). When `false`, only `devices` is used. |
 | `keystates` | `["PRESS"]` | Key states reported as events: any of `PRESS`, `RELEASE`, `REPEAT`. |
-| `devices` | `[]` | Extra devices to use, by stable id, path or name. Used even if virtual or not keyboard-like. See the add-on log, or `evmqtt --list-devices`, for ids. |
-| `enabled_devices` | `[]` | Devices enabled the first time they are seen, by id, path or name. Empty enables all. After that, the switch in Home Assistant decides, and the state survives restarts. |
+| `devices` | `[]` | Extra devices to use, by stable id, path or name. Used even if virtual or not keyboard-like, and grabbed while enabled. See the add-on log, or `evmqtt --list-devices`, for ids. |
+| `enabled_devices` | `[]` | Devices enabled the first time they are seen, by id, path or name. Empty enables all. Listed devices are grabbed while enabled. After that, the switch in Home Assistant decides, and the state survives restarts. |
 | `state_file` | not set | Where the enable/disable state is stored. Defaults to `/data/evmqtt-state.json` in the add-on. |
 | `rescan_interval` | `5` | Seconds between scans for plugged/unplugged devices. `0` disables hotplug detection. |
 | `cleanup_legacy` | `true` | On start, remove retained 1.x discovery (`unique_id` starting `evmqtt_`) so the old sensor and switch entities disappear. |
@@ -57,7 +57,18 @@ By default (`auto_discover: true`) evmqtt uses every input device that has
 at least one real keyboard key, so mice, power buttons and the video bus
 are left alone. Virtual devices (bus `VIRTUAL`, or created through uinput,
 such as keyd's `keyd virtual keyboard` or ydotool) are always skipped
-unless listed in `devices` or `enabled_devices`.
+unless listed in `devices` or `enabled_devices`. Bluetooth LE keyboards and
+remotes (BlueZ uhid) are not treated as virtual. A path may be a symlink,
+such as `/dev/input/by-id/...`.
+
+## Grabbing
+
+A device listed in `devices` or `enabled_devices` is grabbed while enabled:
+its keys reach evmqtt only, not the host. A device found only by
+auto-discovery is never grabbed (it may be the host's own keyboard); its keys
+are published and still reach the system. List a remote to grab it, so keys
+like `KEY_POWER` do not also act on the host. Since 2.1.0; 2.0.0 grabbed every
+enabled device.
 
 Check the add-on log at startup, or run `evmqtt --list-devices` in the
 add-on's terminal (**Settings** → **Add-ons** → **evmqtt** → **Terminal**
