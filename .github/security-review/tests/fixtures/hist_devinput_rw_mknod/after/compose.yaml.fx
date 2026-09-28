@@ -1,0 +1,22 @@
+services:
+  evmqtt:
+    hostname: evmqtt
+    container_name: evmqtt
+    image: ghcr.io/odtgit/evmqtt:latest
+    # build:
+    #   context: .
+    restart: unless-stopped
+    volumes:
+      - "./config.json:/data/config.json:ro"
+      - "evmqtt-state:/var/lib/evmqtt"
+      - "/dev/input:/dev/input"
+      - "/etc/localtime:/etc/localtime:ro"
+    environment:
+      TZ: Europe/Stockholm
+      STATE_DIRECTORY: /var/lib/evmqtt
+    device_cgroup_rules:
+      - "c 13:* rmw"
+    network_mode: host
+
+volumes:
+  evmqtt-state:

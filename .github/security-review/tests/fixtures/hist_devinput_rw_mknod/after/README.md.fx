@@ -1,5 +1,9 @@
 # evmqtt - Linux Input Event to MQTT Gateway
 
+[![CI](https://github.com/odtgit/evmqtt/actions/workflows/ci.yml/badge.svg)](https://github.com/odtgit/evmqtt/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/evmqtt.svg)](https://pypi.org/project/evmqtt/)
+[![GHCR](https://img.shields.io/badge/GHCR-ghcr.io%2Fodtgit%2Fevmqtt-blue.svg)](https://github.com/odtgit/evmqtt/pkgs/container/evmqtt)
+[![HACS Custom](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/integration)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
@@ -7,11 +11,19 @@ Capture Linux input events (keyboards, IR remotes, gamepads) and publish them to
 
 Based on the original [gist](https://gist.github.com/jamesbulpin/b940e7d81e2e65158f12e59b4d6a0c3c) by James Bulpin.
 
+Which install do you need?
+
+| Your setup | Install |
+|---|---|
+| Home Assistant OS or Supervised | [Add-on](#option-1-home-assistant-add-on-recommended) |
+| Home Assistant Container or Core | [HACS integration](#hacs-integration) |
+| Any other MQTT consumer, or no Home Assistant at all | [Docker](#option-3-docker-container), [systemd](#option-5-systemd-service) or [pip](#option-4-python-package) |
+
 ## Features
 
 - Home Assistant MQTT device discovery: one HA device per input device, with an `event` entity for keys and a `switch` to enable or disable it
 - Stable device ids that survive reboots, `eventN` renumbering and (with a serial) port moves
-- Grabs only devices you list and have enabled; auto-discovered devices are read without taking them from the system
+- Grabs only enabled devices; disabling a device releases it back to the system
 - Enable state persists across restarts
 - Gateway and per-device availability (LWT), hotplug support
 - Keeps running while the broker is down and reconnects with backoff
@@ -22,9 +34,9 @@ Based on the original [gist](https://gist.github.com/jamesbulpin/b940e7d81e2e651
 
 ### Option 1: Home Assistant Add-on (Recommended)
 
-The easiest way to use evmqtt with Home Assistant is as a Supervisor add-on.
-
-> **Note:** This is an add-on, not a HACS integration. Add-ons require direct hardware access and run as separate Docker containers, which HACS does not support. Install via the Supervisor Add-on Store instead.
+The easiest way to use evmqtt with Home Assistant OS or Supervised is as a
+Supervisor add-on. Uses the prebuilt image from `ghcr.io/odtgit/evmqtt`, no
+local build.
 
 #### Add Repository to Supervisor
 
@@ -38,7 +50,8 @@ The easiest way to use evmqtt with Home Assistant is as a Supervisor add-on.
 
 #### Local Add-on Installation
 
-Alternatively, clone directly to your local add-ons folder:
+Alternatively, clone directly to your local add-ons folder (`config.yaml`
+still points at the prebuilt image, so this does not build locally either):
 
 ```bash
 cd /addons
@@ -47,12 +60,21 @@ git clone https://github.com/odtgit/evmqtt
 
 Then restart Home Assistant, go to **Settings** → **Add-ons** → **evmqtt** and configure.
 
-### Option 2: Docker Container
+### Option 2: HACS Integration
+
+For Home Assistant Container or Core (no Supervisor), install the custom
+integration through [HACS](https://hacs.xyz/):
+
+1. HACS → **Custom repositories** → add `https://github.com/odtgit/evmqtt`, category **Integration**
+2. Install "evmqtt"
+3. Restart Home Assistant
+4. **Settings** → **Devices & Services** → **Add Integration** → search "evmqtt"
+
+See [HACS integration](#hacs-integration).
+
+### Option 3: Docker Container
 
 ```bash
-# Build the image (use standard Python base for standalone deployment)
-docker build --build-arg -t evmqtt .
-
 # Create your config from the template
 cp config.example.json config.json
 # Edit config.json with your settings
@@ -61,63 +83,72 @@ cp config.example.json config.json
 docker run -d \
   --name evmqtt \
   --network host \
-  --device-cgroup-rule='c 13:* rw' \
-  -v /dev/input:/dev/input:ro \
+  --device-cgroup-rule='c 13:* rmw' \
+  -v /dev/input:/dev/input \
   -v $(pwd)/config.json:/data/config.json:ro \
   -v evmqtt-state:/var/lib/evmqtt \
   -e STATE_DIRECTORY=/var/lib/evmqtt \
-  evmqtt
+  ghcr.io/odtgit/evmqtt:latest
 ```
 
-`c 13:* rw` gives the container every input device, so auto-discovery also
-finds the host's own keyboard. It is read but not grabbed, so it keeps
-working, but its keys are published too. List the device you want in
-`devices` or `enabled_devices` (see [Device selection](#device-selection)),
-or pass only that device instead of the cgroup rule (`--device /dev/input/rc`;
-a device passed this way is not seen again after it is replugged).
-
-Or use Docker Compose (also expects a `config.json` created from `config.example.json` as above):
+Or use Docker Compose (also expects a `config.json` created from
+`config.example.json` as above; `compose.yaml` has a commented `build: .` if
+you want to build locally instead of pulling the image):
 
 ```bash
 docker compose up -d
 ```
 
-### Option 3: Python Package
+### Option 4: Python Package
 
 ```bash
-# Install from source (the daemon needs the mqtt extra)
-pip install ".[mqtt]"
+pip install 'evmqtt[mqtt]'
 
-# Or install in development mode
-pip install -e ".[mqtt,dev]"
-
-# Run
 evmqtt -c config.json -v
 ```
 
-### Option 4: Systemd Service
+Installing from source or in editable mode is under
+[Development](#development).
+
+### Option 5: Systemd Service
+
+`evmqtt.service` runs as a systemd `DynamicUser`, which has no home
+directory, so install evmqtt somewhere on the system `PATH` that a
+service can see, not with a plain per-user `pip`/`pipx install`.
+
+Venv:
 
 ```bash
-# Clone and install the package
-git clone https://github.com/odtgit/evmqtt
-cd evmqtt
-pip install ".[mqtt]"
+sudo python3 -m venv /opt/evmqtt
+sudo /opt/evmqtt/bin/pip install 'evmqtt[mqtt]'
+sudo ln -s /opt/evmqtt/bin/evmqtt /usr/local/bin/evmqtt
+```
 
-# Configure
+Or pipx (>= 1.4) in global mode, which also lands in `/usr/local/bin`:
+
+```bash
+sudo pipx install --global 'evmqtt[mqtt]'
+```
+
+Either way `evmqtt` ends up on `/usr/local/bin`, which is on the `PATH` that
+`ExecStart=/usr/bin/env evmqtt ...` in `evmqtt.service` resolves against.
+Then configure and install the unit (both files are in this repo):
+
+```bash
 sudo mkdir -p /etc/evmqtt
-sudo cp config.example.json /etc/evmqtt/config.json
+sudo curl -fsSL -o /etc/evmqtt/config.json \
+  https://raw.githubusercontent.com/odtgit/evmqtt/master/config.example.json
 sudo chmod 644 /etc/evmqtt/config.json
 # Edit /etc/evmqtt/config.json with your settings
 
-# Install service
-sudo cp evmqtt.service /etc/systemd/system/
+sudo curl -fsSL -o /etc/systemd/system/evmqtt.service \
+  https://raw.githubusercontent.com/odtgit/evmqtt/master/evmqtt.service
 sudo systemctl daemon-reload
 sudo systemctl enable --now evmqtt
 ```
 
-`evmqtt.service` runs as a systemd `DynamicUser` in the `input` group, so
-`/etc/evmqtt/config.json` must stay world-readable (mode 644) for the
-service to read it.
+`evmqtt.service` runs in the `input` group, so `/etc/evmqtt/config.json`
+must stay world-readable (mode 644) for the service to read it.
 
 ## Configuration
 
@@ -134,8 +165,8 @@ The same keys work in `config.json` and in the add-on options.
 | `discovery_prefix` | `homeassistant` | HA discovery prefix |
 | `base_topic` | `evmqtt/<hostname>` | Root of all state, event and command topics. Must not be under `discovery_prefix`. |
 | `auto_discover` | `true` | Select keyboard-like devices automatically. When `false`, only `devices` are used. |
-| `devices` | `[]` | Extra devices by stable id, path or name. Listed devices are used even if virtual or not keyboard-like, and are grabbed while enabled. |
-| `enabled_devices` | `[]` (all) | Initial state for devices seen for the first time, by id, path or name. Empty enables all. Listed devices are grabbed while enabled. |
+| `devices` | `[]` | Extra devices by stable id, path or name. Listed devices are used even if virtual or not keyboard-like. |
+| `enabled_devices` | `[]` (all) | Initial state for devices seen for the first time, by id, path or name. Empty enables all. |
 | `keystates` | `["PRESS"]` | Any of `PRESS`, `REPEAT`, `RELEASE` |
 | `rescan_interval` | `5` | Seconds between hotplug scans, `0` disables |
 | `state_file` | see below | Where the enable state is kept |
@@ -174,11 +205,7 @@ so mice, power buttons and the video bus are left alone. Virtual devices
 (bus `VIRTUAL` or created through uinput, like keyd's
 `keyd virtual keyboard` or ydotool) are always skipped unless listed in
 `devices` or `enabled_devices`: grabbing keyd's output device takes away all
-keyboard input on a desktop. Bluetooth LE keyboards and remotes, which BlueZ
-creates through uhid, are not treated as virtual.
-
-In `devices` and `enabled_devices` a path may also be a symlink to the event
-node, such as a udev rule's `/dev/input/rc` or `/dev/input/by-id/...`.
+keyboard input on a desktop.
 
 `evmqtt --list-devices` prints every device with its stable id and whether
 it is selected by default:
@@ -192,16 +219,11 @@ The id is also in the log and in every event payload (`deviceId`).
 
 ### Enable, grab and persistence
 
-A device listed in `devices` or `enabled_devices` is grabbed (`EVIOCGRAB`)
-while it is enabled: its keys reach evmqtt only, not the console or desktop.
-Turning the switch off releases the grab and stops events; on turns both back
-on. A device that cannot be grabbed (for example because another program
-holds it) is reported unavailable and retried on the next rescan.
-
-A device found only by auto-discovery is never grabbed, since it may be the
-keyboard you use on that machine: its keys are published while it is enabled
-and still reach the system. List a remote to grab it, so that keys like
-`KEY_POWER` or `KEY_SLEEP` on it do not also act on the host.
+An enabled device is grabbed (`EVIOCGRAB`): its keys reach evmqtt only, not
+the console or desktop. Turning the switch off releases the grab and stops
+events; on turns both back on. A device that cannot be grabbed (for example
+because another program holds it) is reported unavailable and retried on the
+next rescan.
 
 The switch state is saved to a state file, keyed by device id:
 
@@ -285,7 +307,7 @@ Device discovery (`homeassistant/device/evmqtt_pi_gpio-ir-recv-1a2b3c4d/config`)
     "model_id": "046d:c52b",
     "via_device": "evmqtt_pi"
   },
-  "origin": {"name": "evmqtt", "sw_version": "2.1.0", "support_url": "https://github.com/odtgit/evmqtt"},
+  "origin": {"name": "evmqtt", "sw_version": "2.0.0", "support_url": "https://github.com/odtgit/evmqtt"},
   "availability": [
     {"topic": "evmqtt/pi/status", "payload_available": "online", "payload_not_available": "offline"},
     {"topic": "evmqtt/pi/gpio-ir-recv-1a2b3c4d/availability", "payload_available": "online", "payload_not_available": "offline"}
@@ -399,9 +421,6 @@ move when `eventN` changes.
 - `devices` and `enabled_devices` accept ids and names as well as paths, and
   `devices` no longer requires `auto_discover: false`.
 - `auto_discover` now defaults to `true` in `config.json` too.
-- Since 2.1.0, only devices listed in `devices` or `enabled_devices` are
-  grabbed. 1.x and 2.0.0 grabbed every device they used; list your devices
-  to keep that.
 - Add-on: `mqtt_host` can be left empty to use the Mosquitto add-on.
 - Enable/disable is now kept in a state file instead of the retained switch
   topic; the first 2.0 start seeds it from `enabled_devices`.
@@ -461,12 +480,17 @@ topics and Home Assistant ids on it.
 
 ## Development
 
+Clone and install in editable mode, with the `mqtt` and `dev` extras:
+
+```bash
+git clone https://github.com/odtgit/evmqtt
+cd evmqtt
+pip install -e ".[mqtt,dev]"
+```
+
 ### Running Tests
 
 ```bash
-# Install dev dependencies
-pip install -e ".[mqtt,dev]"
-
 # Run tests (see tests/README.md for the broker and uinput tiers)
 pytest -m "not broker and not uinput"
 
@@ -550,10 +574,6 @@ keeps retrying.
 1. Check MQTT discovery is enabled in Home Assistant and `discovery_prefix` matches it
 2. Check the device is selected: `evmqtt --list-devices`, and the log at startup
 3. Look in **Settings** → **Devices & Services** → **MQTT** → **Devices**
-
-## Contributing
-
-Pull requests are welcome, from forks too. Every PR goes through an automated security review (`security-review` check) before it can merge, because merges to master are released automatically to PyPI, GHCR and Home Assistant users. Keep PRs small and focused: very large diffs, binary files other than images, and hidden unicode characters fail the check outright. See [SECURITY.md](SECURITY.md) for how the review works and how to report a vulnerability.
 
 ## License
 

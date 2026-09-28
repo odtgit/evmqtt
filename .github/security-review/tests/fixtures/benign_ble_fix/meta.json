@@ -1,0 +1,20 @@
+{
+  "title": "fix: select Bluetooth LE devices and symlinked paths again (#20)",
+  "body": "- sysinfo.is_virtual treated every node under /sys/devices/virtual as\n  virtual, which includes BlueZ's uhid devices (Bluetooth LE / HoG\n  keyboards and remotes), so auto-discovery skipped them.\n- devices / enabled_devices only matched the literal eventN path; a\n  path selector is now also compared after resolving symlinks, so udev\n  links like /dev/input/rc or /dev/input/by-id/... work.\n- README and compose.yaml warn that the c 13:* rw cgroup rule plus the\n  default selection grabs the host's console keyboard.\n\nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_013szyqjSRUgRxDay9UP86Kq",
+  "commits": [
+    "fix: select Bluetooth LE devices and symlinked paths again (#20)"
+  ],
+  "author": "historical",
+  "author_association": "CONTRIBUTOR",
+  "source_commit": "9b355cf74ca11adbd73191209fa9fa85f2d399e1",
+  "paths": [
+    "README.md",
+    "compose.yaml",
+    "src/evmqtt/gateway.py",
+    "src/evmqtt/sysinfo.py",
+    "tests/fakes.py",
+    "tests/test_gateway.py"
+  ],
+  "expect": "PASS",
+  "note": ""
+}

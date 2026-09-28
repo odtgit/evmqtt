@@ -1,0 +1,16 @@
+{
+  "title": "feat(hacs): native Home Assistant integration in custom_components/evmqtt",
+  "body": "Config flow over the core's device scan, event and switch entities per\ninput device, hotplug via DeviceWatcher, enable state in the entry\noptions, EBUSY handling and an optional MQTT mirror with the daemon's\nevent payload. hacs.json and a local brand icon for HACS.",
+  "commits": [
+    "feat(hacs): native Home Assistant integration in custom_components/evmqtt"
+  ],
+  "author": "historical",
+  "author_association": "CONTRIBUTOR",
+  "source_commit": "0a9e354848d2021acc3263bb7089236027d905ef",
+  "paths": [
+    "custom_components/evmqtt/entity.py",
+    "custom_components/evmqtt/event.py"
+  ],
+  "expect": "FAIL",
+  "note": "real: key, modifiers and device attributes on the HA event entity written to recorder history; fixed in bb44613"
+}

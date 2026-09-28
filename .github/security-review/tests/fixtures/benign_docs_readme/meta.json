@@ -1,0 +1,15 @@
+{
+  "title": "docs(readme): round out the Core Library example with GrabMode, DeviceWatcher",
+  "body": "Type the callback as KeyEvent, pass GrabMode explicitly, and add a\nDeviceWatcher snippet for hotplug. Both verified against\ntests/fakes.FakeEvdevRegistry in a throwaway script before writing.",
+  "commits": [
+    "docs(readme): round out the Core Library example with GrabMode, DeviceWatcher"
+  ],
+  "author": "historical",
+  "author_association": "CONTRIBUTOR",
+  "source_commit": "199d6f19986d07d778e1d274c7c316df4e13efd6",
+  "paths": [
+    "README.md"
+  ],
+  "expect": "PASS",
+  "note": ""
+}

@@ -1,0 +1,16 @@
+{
+  "title": "docs: point install options at published artifacts, add HACS option",
+  "body": "Add-on notes it uses the prebuilt GHCR image, new HACS integration option\n(links to the not-yet-written HACS integration section), Docker/compose use\nghcr.io/odtgit/evmqtt:latest instead of a local build, pip installs from\nPyPI with source/editable moved to Development, and systemd covers a venv\nor pipx global install since DynamicUser has no home directory for a\nper-user install to land in.\n\nAlso fixes the device-cgroup rule to 'c 13:* rmw' (needs mknod for\nhotplug) and drops the :ro on the /dev/input bind mount, in README and\ncompose.yaml.",
+  "commits": [
+    "docs: point install options at published artifacts, add HACS option"
+  ],
+  "author": "historical",
+  "author_association": "CONTRIBUTOR",
+  "source_commit": "5cc723957e2748708471af2037c8f25f97ffcb47",
+  "paths": [
+    "README.md",
+    "compose.yaml"
+  ],
+  "expect": "FAIL",
+  "note": "real: /dev/input bind mount made read-write and cgroup rule widened to c 13:* rmw; later reverted in b2e5648"
+}

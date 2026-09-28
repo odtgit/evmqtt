@@ -1,0 +1,21 @@
+{
+  "title": "feat!: grab only devices listed in devices or enabled_devices (#20)",
+  "body": "Auto-discovery with access to every input device (the documented\nc 13:* rw cgroup rule) grabbed the host's console keyboard, leaving the\nmachine without keyboard input until evmqtt was stopped. Auto-discovered\ndevices are now read without EVIOCGRAB, so their keys still reach the\nsystem; a device named in devices or enabled_devices is grabbed while it\nis enabled, as before.\n\nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_013szyqjSRUgRxDay9UP86Kq",
+  "commits": [
+    "feat!: grab only devices listed in devices or enabled_devices (#20)"
+  ],
+  "author": "historical",
+  "author_association": "CONTRIBUTOR",
+  "source_commit": "0856a78f1cc5ff1dc1a897e282c1aa1648c61f6a",
+  "paths": [
+    "README.md",
+    "compose.yaml",
+    "src/evmqtt/gateway.py",
+    "tests/integration/test_broker.py",
+    "tests/test_cli.py",
+    "tests/test_gateway.py",
+    "translations/en.yaml"
+  ],
+  "expect": "FAIL",
+  "note": "real: auto-discovered keyboards read and enabled when enabled_devices is empty, so the host console keyboard's keys reach MQTT"
+}

@@ -285,7 +285,7 @@ Device discovery (`homeassistant/device/evmqtt_pi_gpio-ir-recv-1a2b3c4d/config`)
     "model_id": "046d:c52b",
     "via_device": "evmqtt_pi"
   },
-  "origin": {"name": "evmqtt", "sw_version": "2.1.0", "support_url": "https://github.com/odtgit/evmqtt"},
+  "origin": {"name": "evmqtt", "sw_version": "2.0.0", "support_url": "https://github.com/odtgit/evmqtt"},
   "availability": [
     {"topic": "evmqtt/pi/status", "payload_available": "online", "payload_not_available": "offline"},
     {"topic": "evmqtt/pi/gpio-ir-recv-1a2b3c4d/availability", "payload_available": "online", "payload_not_available": "offline"}
@@ -399,9 +399,8 @@ move when `eventN` changes.
 - `devices` and `enabled_devices` accept ids and names as well as paths, and
   `devices` no longer requires `auto_discover: false`.
 - `auto_discover` now defaults to `true` in `config.json` too.
-- Since 2.1.0, only devices listed in `devices` or `enabled_devices` are
-  grabbed. 1.x and 2.0.0 grabbed every device they used; list your devices
-  to keep that.
+- Only devices listed in `devices` or `enabled_devices` are grabbed. 1.x and
+  2.0.0 grabbed every device they used; list your devices to keep that.
 - Add-on: `mqtt_host` can be left empty to use the Mosquitto add-on.
 - Enable/disable is now kept in a state file instead of the retained switch
   topic; the first 2.0 start seeds it from `enabled_devices`.
@@ -550,10 +549,6 @@ keeps retrying.
 1. Check MQTT discovery is enabled in Home Assistant and `discovery_prefix` matches it
 2. Check the device is selected: `evmqtt --list-devices`, and the log at startup
 3. Look in **Settings** → **Devices & Services** → **MQTT** → **Devices**
-
-## Contributing
-
-Pull requests are welcome, from forks too. Every PR goes through an automated security review (`security-review` check) before it can merge, because merges to master are released automatically to PyPI, GHCR and Home Assistant users. Keep PRs small and focused: very large diffs, binary files other than images, and hidden unicode characters fail the check outright. See [SECURITY.md](SECURITY.md) for how the review works and how to report a vulnerability.
 
 ## License
 
