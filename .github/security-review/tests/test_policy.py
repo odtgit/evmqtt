@@ -244,3 +244,10 @@ def test_any_mention_of_gate_check_in_other_workflow_fails():
         ".github/workflows/x.yml", ["jobs:", "  a:", "    name: 'Security-Review'"]
     )
     assert policy.run(pr_with(wf)).failures
+
+
+def test_gate_directory_path_in_other_workflow_is_not_spoofing():
+    wf = added(
+        ".github/workflows/ci.yml", ["    - run: ruff check .github/security-review"]
+    )
+    assert policy.run(pr_with(wf)).failures == []

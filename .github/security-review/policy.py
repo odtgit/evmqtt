@@ -111,6 +111,11 @@ def is_sensitive(path: str) -> bool:
     return any(fnmatchcase(path, pat) for pat in SENSITIVE)
 
 
+def names_check(text: str) -> bool:
+    """Mentions the check name other than as the gate's own directory path."""
+    return CHECK_NAME in text.lower().replace(GATE_DIR.rstrip("/"), "")
+
+
 def is_workflow(path: str) -> bool:
     return fnmatchcase(path, ".github/workflows/*.y*ml")
 
@@ -283,11 +288,7 @@ def run(pr: PullRequest) -> PrecheckResult:
                         )
                     )
             for lineno, text in enumerate(lines(head_text or ""), 1):
-                if (
-                    CHECK_NAME in text.lower()
-                    or SPOOF_NAME.match(text)
-                    or SPOOF_JOB.match(text)
-                ):
+                if names_check(text) or SPOOF_NAME.match(text) or SPOOF_JOB.match(text):
                     fail(
                         Issue(
                             path,
