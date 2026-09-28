@@ -2,7 +2,18 @@
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased]
+## [3.0.0] - 2026-09-28
+
+Breaking release. See [Upgrading to 3.0](README.md#upgrading-to-30).
+
+### Changed
+
+- **Breaking:** auto-discovered devices start disabled (opt-in). Only devices
+  listed in `devices` or `enabled_devices` start enabled; enable others with
+  their Home Assistant switch. 2.x state files are migrated once: devices that
+  were only on because of the old "empty means all" default are switched off,
+  with a warning naming them. Before this, every keyboard-like device on the
+  host, including a local keyboard, published its keys by default.
 
 ### Added
 

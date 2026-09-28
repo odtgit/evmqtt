@@ -1,6 +1,6 @@
 name: "evmqtt"
 description: "Linux input event to MQTT gateway for Home Assistant with auto-discovery"
-version: "2.1.0"
+version: "3.0.0"
 slug: "evmqtt"
 homeassistant: "2024.12.0"
 image: ghcr.io/odtgit/evmqtt
