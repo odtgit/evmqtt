@@ -145,8 +145,31 @@ async def test_switch_off_releases_grab_on_real_device(
 async def test_disabled_at_start_is_not_grabbed(
     make_uinput: UInputFactory, name: str, fake_mqtt, tmp_path: Path
 ) -> None:
+    """A device that was disabled (via the switch, persisted to the state
+    file) stays disabled and ungrabbed on the next start, even though it is
+    listed and would otherwise start enabled."""
     ui = make_uinput(name=name)
-    gateway = await start(make_config(tmp_path, name, enabled_devices=["other"]))
+    device = open_device(ui.device.path)
+    try:
+        dev_id = describe(device).id
+    finally:
+        device.close()
+    state_path = tmp_path / "state.json"
+    state_path.write_text(
+        json.dumps(
+            {
+                "version": 2,
+                "devices": {
+                    dev_id: {
+                        "enabled": False,
+                        "name": name,
+                        "path": ui.device.path,
+                    }
+                },
+            }
+        )
+    )
+    gateway = await start(make_config(tmp_path, name))
     try:
         assert other_can_grab(ui.device.path)
     finally:

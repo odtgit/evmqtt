@@ -177,7 +177,7 @@ async def test_discovery_payloads_full_structure(
                 },
             },
         }
-        for leaf, value in (("availability", "online"), ("switch/state", "ON")):
+        for leaf, value in (("availability", "online"), ("switch/state", "OFF")):
             state = last(client, topic(dev_id, leaf))
             assert (state.payload, state.retain) == (value, True)
         status = last(client, f"{BASE}/status")
@@ -240,7 +240,9 @@ async def test_event_payload_per_keystate(
     fake_evdev, fake_mqtt, tmp_path, keystates, expected
 ) -> None:
     device = add_kbd(fake_evdev)
-    overrides = {} if keystates is None else {"keystates": keystates}
+    overrides: dict[str, object] = {"devices": ["Kbd A"]}
+    if keystates is not None:
+        overrides["keystates"] = keystates
     gateway = await start(make_config(tmp_path, **overrides))
     try:
         client = fake_mqtt.last()
@@ -273,7 +275,7 @@ async def test_event_modifiers_aliases_and_ignored_keys(
     fake_evdev, fake_mqtt, tmp_path
 ) -> None:
     device = add_kbd(fake_evdev)
-    gateway = await start(make_config(tmp_path))
+    gateway = await start(make_config(tmp_path, devices=["Kbd A"]))
     try:
         client = fake_mqtt.last()
         device.push_all(
@@ -343,17 +345,19 @@ async def test_switch_on_with_grab_failure_stays_off(
     fake_evdev, fake_mqtt, tmp_path
 ) -> None:
     device = add_kbd(fake_evdev)
-    gateway = await start(
-        make_config(tmp_path, devices=["Kbd A"], enabled_devices=["nothing"])
-    )
+    gateway = await start(make_config(tmp_path, devices=["Kbd A"]))
     try:
         client = fake_mqtt.last()
         dev_id = kbd_id()
-        assert not device.grabbed
+        assert device.grabbed, "listed device starts enabled"
+
+        client.inject(topic(dev_id, "switch/set"), "OFF")
+        assert await until(lambda: not device.grabbed)
+
         device.fail_grab()
         client.inject(topic(dev_id, "switch/set"), "ON")
         assert await until(
-            lambda: len(published(client, topic(dev_id, "switch/state"))) >= 2
+            lambda: len(published(client, topic(dev_id, "switch/state"))) >= 3
         )
         assert last(client, topic(dev_id, "switch/state")).payload == "OFF"
         assert gateway.store.enabled(dev_id) is False
@@ -555,11 +559,12 @@ async def test_default_selection_excludes_virtual_mice_and_power_buttons(
         await gateway.stop()
 
 
-async def test_auto_discovered_devices_are_read_but_not_grabbed(
+async def test_auto_discovered_devices_start_disabled_and_are_never_grabbed(
     fake_evdev, fake_mqtt, tmp_path
 ) -> None:
-    """#20: a discovered device may be the host's keyboard; only listed ones
-    are grabbed."""
+    """Security: opt-in only. A discovered device may be the host's own
+    keyboard, so it must not publish keys (or be grabbed) until a person
+    enables it; only listed ones are grabbed. #20, opt-in-devices."""
     a = add_kbd(fake_evdev, "/dev/input/event0", "Kbd A")
     b = add_kbd(fake_evdev, "/dev/input/event1", "Kbd B")
     gateway = await start(make_config(tmp_path, devices=["Kbd B"]))
@@ -567,19 +572,57 @@ async def test_auto_discovered_devices_are_read_but_not_grabbed(
         client = fake_mqtt.last()
         dev_id = kbd_id()
         assert (a.grabbed, b.grabbed) == (False, True)
-        assert last(client, topic(dev_id, "switch/state")).payload == "ON"
+
+        # discovery entities exist for the auto-discovered device too
+        assert await until(lambda: last(client, discovery_topic(dev_id)))
+        assert last(client, topic(dev_id, "switch/state")).payload == "OFF"
+
+        # disabled: a key press publishes nothing
         a.push(press("KEY_A"))
+        await drained(a)
+        assert published(client, topic(dev_id, "event")) == []
+
+        # enabling via the switch makes it publish, still without grabbing
+        client.inject(topic(dev_id, "switch/set"), "ON")
+        assert await until(
+            lambda: last(client, topic(dev_id, "switch/state")).payload == "ON"
+        )
+        a.push(press("KEY_B"))
         assert await until(lambda: published(client, topic(dev_id, "event")))
+        assert a.grab_calls == 0
 
         client.inject(topic(dev_id, "switch/set"), "OFF")
         assert await until(
             lambda: last(client, topic(dev_id, "switch/state")).payload == "OFF"
         )
+        assert a.grab_calls == 0
+    finally:
+        await gateway.stop()
+
+
+async def test_enabling_auto_discovered_device_persists_across_restart(
+    fake_evdev, fake_mqtt, tmp_path
+) -> None:
+    device = add_kbd(fake_evdev)
+    dev_id = kbd_id()
+    config = make_config(tmp_path)
+    gateway = await start(config)
+    try:
+        client = fake_mqtt.last()
+        assert last(client, topic(dev_id, "switch/state")).payload == "OFF"
         client.inject(topic(dev_id, "switch/set"), "ON")
         assert await until(
             lambda: last(client, topic(dev_id, "switch/state")).payload == "ON"
         )
-        assert a.grab_calls == 0
+    finally:
+        await gateway.stop()
+
+    gateway = await start(config)
+    try:
+        client = fake_mqtt.last()
+        assert last(client, topic(dev_id, "switch/state")).payload == "ON"
+        device.push(press("KEY_A"))
+        assert await until(lambda: published(client, topic(dev_id, "event")))
     finally:
         await gateway.stop()
 

@@ -12,6 +12,7 @@ Based on the original [gist](https://gist.github.com/jamesbulpin/b940e7d81e2e651
 - Home Assistant MQTT device discovery: one HA device per input device, with an `event` entity for keys and a `switch` to enable or disable it
 - Stable device ids that survive reboots, `eventN` renumbering and (with a serial) port moves
 - Grabs only devices you list and have enabled; auto-discovered devices are read without taking them from the system
+- Opt-in by default: an auto-discovered device (which may be your own keyboard) starts disabled, so it is never published until a person enables it
 - Enable state persists across restarts
 - Gateway and per-device availability (LWT), hotplug support
 - Keeps running while the broker is down and reconnects with backoff
@@ -70,11 +71,12 @@ docker run -d \
 ```
 
 `c 13:* rw` gives the container every input device, so auto-discovery also
-finds the host's own keyboard. It is read but not grabbed, so it keeps
-working, but its keys are published too. List the device you want in
-`devices` or `enabled_devices` (see [Device selection](#device-selection)),
-or pass only that device instead of the cgroup rule (`--device /dev/input/rc`;
-a device passed this way is not seen again after it is replugged).
+finds the host's own keyboard. It gets entities but starts disabled: it is
+neither grabbed nor published until a person enables it (in Home Assistant,
+or by listing it). List the device you want in `devices` or `enabled_devices`
+(see [Device selection](#device-selection)), or pass only that device instead
+of the cgroup rule (`--device /dev/input/rc`; a device passed this way is not
+seen again after it is replugged).
 
 Or use Docker Compose (also expects a `config.json` created from `config.example.json` as above):
 
@@ -134,8 +136,8 @@ The same keys work in `config.json` and in the add-on options.
 | `discovery_prefix` | `homeassistant` | HA discovery prefix |
 | `base_topic` | `evmqtt/<hostname>` | Root of all state, event and command topics. Must not be under `discovery_prefix`. |
 | `auto_discover` | `true` | Select keyboard-like devices automatically. When `false`, only `devices` are used. |
-| `devices` | `[]` | Extra devices by stable id, path or name. Listed devices are used even if virtual or not keyboard-like, and are grabbed while enabled. |
-| `enabled_devices` | `[]` (all) | Initial state for devices seen for the first time, by id, path or name. Empty enables all. Listed devices are grabbed while enabled. |
+| `devices` | `[]` | Extra devices by stable id, path or name. Listed devices are used even if virtual or not keyboard-like, start enabled, and are grabbed while enabled. |
+| `enabled_devices` | `[]` | Devices that should start enabled, by id, path or name, for the first time they are seen. Everything else (including every auto-discovered device) starts disabled; see [Enable, grab and persistence](#enable-grab-and-persistence). |
 | `keystates` | `["PRESS"]` | Any of `PRESS`, `REPEAT`, `RELEASE` |
 | `rescan_interval` | `5` | Seconds between hotplug scans, `0` disables |
 | `state_file` | see below | Where the enable state is kept |
@@ -180,6 +182,10 @@ creates through uhid, are not treated as virtual.
 In `devices` and `enabled_devices` a path may also be a symlink to the event
 node, such as a udev rule's `/dev/input/rc` or `/dev/input/by-id/...`.
 
+Selection only decides which devices get entities; it does not enable them.
+An auto-discovered device (not named in `devices` or `enabled_devices`)
+always starts disabled, see below.
+
 `evmqtt --list-devices` prints every device with its stable id and whether
 it is selected by default:
 
@@ -192,15 +198,25 @@ The id is also in the log and in every event payload (`deviceId`).
 
 ### Enable, grab and persistence
 
-A device listed in `devices` or `enabled_devices` is grabbed (`EVIOCGRAB`)
-while it is enabled: its keys reach evmqtt only, not the console or desktop.
-Turning the switch off releases the grab and stops events; on turns both back
-on. A device that cannot be grabbed (for example because another program
-holds it) is reported unavailable and retried on the next rescan.
+Privacy rationale: an auto-discovered device may be the keyboard you are
+typing this config on, so evmqtt never publishes its keys until a person
+opts it in.
+
+A device listed in `devices` or `enabled_devices` starts enabled. Every
+other device, including every auto-discovered one, starts disabled: it gets
+discovery entities, but nothing is read into events, nothing is published,
+and it is not grabbed until it is enabled. Enable it with the switch in
+Home Assistant, or by adding it to `devices` or `enabled_devices`.
+
+A listed device is grabbed (`EVIOCGRAB`) while it is enabled: its keys reach
+evmqtt only, not the console or desktop. Turning the switch off releases the
+grab and stops events; on turns both back on. A device that cannot be
+grabbed (for example because another program holds it) is reported
+unavailable and retried on the next rescan.
 
 A device found only by auto-discovery is never grabbed, since it may be the
-keyboard you use on that machine: its keys are published while it is enabled
-and still reach the system. List a remote to grab it, so that keys like
+keyboard you use on that machine: once enabled its keys are published and
+still reach the system. List a remote to grab it, so that keys like
 `KEY_POWER` or `KEY_SLEEP` on it do not also act on the host.
 
 The switch state is saved to a state file, keyed by device id:
@@ -212,7 +228,9 @@ The switch state is saved to a state file, keyed by device id:
 | compose (`STATE_DIRECTORY`) | `/var/lib/evmqtt/state.json` in the `evmqtt-state` volume |
 | otherwise | `$XDG_STATE_HOME/evmqtt/state.json`, or `~/.local/state/evmqtt/state.json` |
 
-`enabled_devices` only seeds devices the state file does not know yet.
+`devices` and `enabled_devices` only decide the starting state the first
+time a device is seen; after that the switch decides, and the choice is
+kept in the state file across restarts.
 
 ### MQTT over TLS
 
@@ -350,6 +368,27 @@ automation:
 
 Node-RED and other MQTT consumers subscribe to `<base>/+/event` for the JSON
 stream.
+
+## Upgrading to 3.0
+
+**Auto-discovered devices now start disabled (opt-in).** In 2.0 and 2.1, an
+empty `enabled_devices` meant "enable all", so every auto-discovered
+keyboard-like device (which can include the host's own keyboard) was enabled
+and publishing keys by default. 3.0 closes that: only devices listed in
+`devices` or `enabled_devices` start enabled; everything else, including
+every auto-discovered device, starts disabled and must be turned on with the
+Home Assistant switch (or added to `devices`/`enabled_devices`).
+
+On first start with a 2.x state file, evmqtt migrates it: devices that were
+"on" only because of the old default are switched to "off" (devices that
+match `devices`/`enabled_devices`, or that a person already toggled and got
+persisted, are unaffected). It logs one `WARNING` naming every device it
+disabled and how to re-enable it, then rewrites the state file with the new
+schema version. After that first migration the file is trusted as-is.
+
+If you rely on an auto-discovered device (for example a remote that was
+never listed), add it to `devices` or `enabled_devices`, or re-enable it in
+Home Assistant, after upgrading.
 
 ## Upgrading from 1.x
 

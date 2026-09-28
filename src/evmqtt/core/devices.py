@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import os
 import re
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
@@ -196,6 +197,18 @@ def is_keyboard_like(info: DeviceInfo) -> bool:
     Excludes mice (BTN_* only), ACPI power buttons and the video bus.
     """
     return any(is_keyboard_code(code) for code in info.key_codes)
+
+
+def matches_selectors(
+    device_id: str, path: str, name: str, selectors: Sequence[str]
+) -> bool:
+    """By id, name or path; a path may be a symlink (udev's /dev/input/by-id)."""
+    for s in selectors:
+        if s in (device_id, path, name):
+            return True
+        if s.startswith("/") and os.path.realpath(s) == path:
+            return True
+    return False
 
 
 def _path_order(path: str) -> tuple[str, int]:

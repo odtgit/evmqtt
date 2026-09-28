@@ -20,6 +20,7 @@ from evmqtt.core import (
     ReaderStopped,
     StopReason,
     is_keyboard_like,
+    matches_selectors,
     open_device,
 )
 from evmqtt.mqtt_client import BrokerSettings, MQTTClientWrapper, Will
@@ -34,12 +35,7 @@ CLEANUP_WINDOW = 3.0
 
 def matches(info: DeviceInfo, selectors: tuple[str, ...]) -> bool:
     """By id, name or path; a path may be a symlink (udev's /dev/input/by-id)."""
-    for s in selectors:
-        if s in (info.id, info.path, info.name):
-            return True
-        if s.startswith("/") and os.path.realpath(s) == info.path:
-            return True
-    return False
+    return matches_selectors(info.id, info.path, info.name, selectors)
 
 
 @dataclass
@@ -98,18 +94,21 @@ class Gateway:
         return is_keyboard_like(info) and not is_virtual(info)
 
     def initially_enabled(self, info: DeviceInfo) -> bool:
+        """Listed devices start enabled; auto-discovered ones start disabled.
+
+        Privacy: an auto-discovered device may be the host's own keyboard,
+        so it must not publish keys until a person opts it in.
+        """
         stored = self.store.enabled(info.id)
         if stored is not None:
             return stored
-        if not self.config.enabled_devices:
-            return True
-        return matches(info, self.config.enabled_devices)
+        return self.listed(info)
 
     # -- lifecycle -------------------------------------------------------
 
     async def start(self) -> None:
         """Scan and grab devices, then connect to MQTT in the background."""
-        self.store.load()
+        self.store.load(selectors=self.config.devices + self.config.enabled_devices)
         await self.rescan()
         logger.info(
             "Managing %d device(s): %s",
