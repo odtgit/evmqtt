@@ -6,18 +6,12 @@ on:
     paths-ignore:
       - LICENSE
       - 'README.*'
-  release:
-    types: [ published ]
   pull_request:
   workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
-
-env:
-  REGISTRY: ghcr.io
-  REGISTRY_IMAGE: ghcr.io/${{ github.repository }}
 
 permissions:
   contents: read
@@ -99,170 +93,21 @@ jobs:
       - run: pip install -e ".[mqtt,dev]"
       - run: pytest -q -m broker
 
-  image-build:
-    runs-on: ${{ matrix.os }}
+  images-pr:
+    if: github.event_name == 'pull_request'
     permissions:
       contents: read
-      packages: write
-    strategy:
-      fail-fast: true
-      matrix:
-        include:
-          - platform: linux/amd64
-            os: ubuntu-latest
-          - platform: linux/arm64
-            os: ubuntu-26.04-arm
-    steps:
-      -
-        name: Prepare
-        run: |
-          platform=${{ matrix.platform }}
-          echo "PLATFORM_PAIR=${platform//\//-}" >>"${GITHUB_ENV}"
-      -
-        name: Checkout
-        uses: actions/checkout@v6
-      -
-        name: Docker meta
-        id: meta
-        uses: docker/metadata-action@v6
-        with:
-          images: ${{ env.REGISTRY_IMAGE }}
-          flavor: |
-            latest=false
-          tags: |
-            type=edge,branch=master
-            type=semver,pattern={{version}}
-            type=raw,value=latest,enable=${{ github.event_name == 'release' }}
-      -
-        name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
-      -
-        # fork PRs get a read-only GITHUB_TOKEN, so only log in on non-PR events
-        name: Login to GitHub Container Registry
-        if: github.event_name != 'pull_request'
-        uses: docker/login-action@v4
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      -
-        name: Build (PR, local load)
-        if: github.event_name == 'pull_request'
-        id: build-pr
-        uses: docker/build-push-action@v7
-        with:
-          context: .
-          build-args: |
-            BUILD_NAME=${{ github.event.repository.name }}
-            BUILD_DESCRIPTION=${{ github.event.repository.description }}
-            BUILD_VERSION=${{ steps.meta.outputs.version }}
-          platforms: ${{ matrix.platform }}
-          labels: ${{ steps.meta.outputs.labels }}
-          load: true
-          tags: evmqtt:${{ env.PLATFORM_PAIR }}
-      -
-        name: Build and push by digest
-        if: github.event_name != 'pull_request'
-        id: build
-        uses: docker/build-push-action@v7
-        with:
-          context: .
-          build-args: |
-            BUILD_NAME=${{ github.event.repository.name }}
-            BUILD_DESCRIPTION=${{ github.event.repository.description }}
-            BUILD_VERSION=${{ steps.meta.outputs.version }}
-          platforms: ${{ matrix.platform }}
-          labels: ${{ steps.meta.outputs.labels }}
-          outputs: type=image,name=${{ env.REGISTRY_IMAGE }},push-by-digest=true,name-canonical=true,push=true
-      -
-        name: Smoke test (PR image)
-        if: github.event_name == 'pull_request'
-        run: |
-          image="evmqtt:${{ env.PLATFORM_PAIR }}"
-          docker run --rm "${image}" evmqtt --help
-          status=0
-          docker run --rm "${image}" evmqtt --list-devices || status=$?
-          test "${status}" -eq 1
-      -
-        name: Smoke test
-        if: github.event_name != 'pull_request'
-        run: |
-          image="${{ env.REGISTRY_IMAGE }}@${{ steps.build.outputs.digest }}"
-          docker run --rm "${image}" evmqtt --help
-          status=0
-          docker run --rm "${image}" evmqtt --list-devices || status=$?
-          test "${status}" -eq 1
-      -
-        name: Lint HA configuration
-        if: matrix.platform == 'linux/amd64'
-        uses: frenck/action-app-linter@v2.21.1
-        with:
-          path: "."
-      -
-        name: Export digest
-        if: github.event_name != 'pull_request'
-        run: |
-          mkdir -p /tmp/digests
-          digest="${{ steps.build.outputs.digest }}"
-          touch "/tmp/digests/${digest#sha256:}"
-      -
-        name: Upload digest
-        if: github.event_name != 'pull_request'
-        uses: actions/upload-artifact@v7
-        with:
-          name: digests-${{ env.PLATFORM_PAIR }}
-          path: /tmp/digests/*
-          if-no-files-found: error
-          retention-days: 1
+    uses: ./.github/workflows/images.yml
+    with:
+      ref: ${{ github.sha }}
+      push: false
 
-  merge:
+  images-master:
     if: github.event_name != 'pull_request'
-    runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
-    needs:
-      - image-build
-    strategy:
-      fail-fast: true
-    steps:
-      -
-        name: Download digests
-        uses: actions/download-artifact@v8
-        with:
-          path: /tmp/digests
-          pattern: digests-*
-          merge-multiple: true
-      -
-        name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
-      -
-        name: Docker meta
-        id: meta
-        uses: docker/metadata-action@v6
-        with:
-          images: ${{ env.REGISTRY_IMAGE }}
-          flavor: |
-            latest=false
-          tags: |
-            type=edge,branch=master
-            type=semver,pattern={{version}}
-            type=raw,value=latest,enable=${{ github.event_name == 'release' }}
-      -
-        name: Login to GitHub Container Registry
-        uses: docker/login-action@v4
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      -
-        name: Create manifest list and push
-        working-directory: /tmp/digests
-        run: |
-          docker buildx imagetools create \
-            $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "${DOCKER_METADATA_OUTPUT_JSON}") \
-            $(printf '${{ env.REGISTRY_IMAGE }}@sha256:%s ' *)
-      -
-        name: Inspect image
-        run: |
-          docker buildx imagetools inspect ${{ env.REGISTRY_IMAGE }}:${{ steps.meta.outputs.version }}
+    uses: ./.github/workflows/images.yml
+    with:
+      ref: ${{ github.sha }}
+      push: true

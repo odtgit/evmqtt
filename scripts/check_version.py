@@ -13,7 +13,10 @@ try:
 except ImportError:
     import tomli as tomllib  # type: ignore[no-redef]
 
-ROOT = Path(__file__).resolve().parent.parent
+ROOT = (
+    Path(os.environ.get("EVMQTT_CHECK_VERSION_ROOT", ""))
+    or Path(__file__).resolve().parent.parent
+)
 
 
 def pyproject_version() -> str:

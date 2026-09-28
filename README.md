@@ -510,6 +510,15 @@ ruff check src/ tests/
 ruff format src/ tests/
 ```
 
+### Contributing
+
+PR titles must follow [Conventional Commits](https://www.conventionalcommits.org/):
+`<type>(<optional scope>): <description>`, e.g. `feat: add rescan on hotplug` or
+`fix(addon): correct default topic`. The PR title becomes the squash-merge commit
+subject, which drives the automatic release (see [RELEASING.md](RELEASING.md)).
+Allowed types: `feat`, `fix`, `perf`, `refactor`, `docs`, `test`, `ci`, `build`,
+`chore`, `style`, `revert`. Add `!` before the colon for a breaking change.
+
 ## Requirements
 
 - Python 3.10+

@@ -1,39 +1,170 @@
 name: Release
 
 on:
-  release:
-    types: [published]
+  push:
+    branches: [master]
   workflow_dispatch:
+    inputs:
+      republish_tag:
+        description: re-publish an existing tag (vX.Y.Z) instead of computing a new one
+        required: false
+        type: string
+      bump:
+        description: force this bump level instead of analysing commits (ignored if republish_tag is set)
+        required: false
+        type: choice
+        options: [auto, patch, minor, major]
+        default: auto
+
+concurrency:
+  group: release
+  cancel-in-progress: false
 
 permissions:
   contents: read
 
 jobs:
-  build:
+  version:
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && github.event.inputs.republish_tag == '')
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.compute.outputs.version }}
+      release: ${{ steps.compute.outputs.release }}
     steps:
-      - name: Require a vX.Y.Z tag
-        if: github.event_name == 'release'
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - id: compute
         env:
-          TAG: ${{ github.event.release.tag_name }}
+          BUMP: ${{ github.event.inputs.bump }}
         run: |
-          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+ ]] || { echo "::error::release tag '$TAG' must be vX.Y.Z (pypi environment only allows v* tags)"; exit 1; }
-      - uses: actions/checkout@v5
+          if [ -n "$BUMP" ] && [ "$BUMP" != "auto" ]; then
+            version=$(python scripts/release.py forced-version "$BUMP")
+          else
+            version=$(python scripts/release.py next-version)
+          fi
+          if [ -n "$version" ]; then
+            echo "version=$version" >>"$GITHUB_OUTPUT"
+            echo "release=true" >>"$GITHUB_OUTPUT"
+          else
+            echo "release=false" >>"$GITHUB_OUTPUT"
+          fi
+
+  tag:
+    needs: version
+    if: needs.version.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      version: ${{ needs.version.outputs.version }}
+      tag: v${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: master
+          fetch-depth: 0
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+      - name: Apply, commit, tag and create the release
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          allowed='^(pyproject\.toml|config\.yaml|CHANGELOG\.md|custom_components/evmqtt/manifest\.json)$'
+
+          apply_and_commit() {
+            python scripts/release.py apply "$VERSION"
+            git add pyproject.toml config.yaml CHANGELOG.md
+            if [ -f custom_components/evmqtt/manifest.json ]; then
+              git add custom_components/evmqtt/manifest.json
+            fi
+            touched=$(git diff --cached --name-only)
+            if echo "$touched" | grep -vE "$allowed" | grep -q .; then
+              echo "::error::release commit would touch files outside the version/changelog set"
+              echo "$touched"
+              exit 1
+            fi
+            git commit -m "release: ${VERSION} [skip ci]"
+          }
+
+          apply_and_commit
+          if ! git push origin HEAD:master; then
+            echo "master moved since checkout, fetching and retrying once"
+            git reset --hard HEAD~1
+            git fetch origin master
+            git reset --hard origin/master
+            apply_and_commit
+            git push origin HEAD:master
+          fi
+
+          git tag "v${VERSION}"
+          git push origin "v${VERSION}"
+          gh release create "v${VERSION}" --notes-file RELEASE_NOTES.md --latest
+
+  manual:
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.republish_tag != ''
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.resolve.outputs.version }}
+      tag: ${{ steps.resolve.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - id: resolve
+        env:
+          TAG: ${{ github.event.inputs.republish_tag }}
+        run: |
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::republish_tag must be vX.Y.Z"; exit 1; }
+          git rev-parse "refs/tags/$TAG" >/dev/null 2>&1 || { echo "::error::tag $TAG does not exist"; exit 1; }
+          echo "tag=$TAG" >>"$GITHUB_OUTPUT"
+          echo "version=${TAG#v}" >>"$GITHUB_OUTPUT"
+
+  build:
+    needs: [tag, manual]
+    if: always() && (needs.tag.result == 'success' || needs.manual.result == 'success')
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ needs.tag.outputs.tag || needs.manual.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ env.TAG }}
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
       - run: pip install build twine
       - run: python -m build
       - run: twine check dist/*
-      - run: python scripts/check_version.py
+      - run: python scripts/check_version.py "$TAG"
       - uses: actions/upload-artifact@v7
         with:
           name: dist
           path: dist/*
           retention-days: 7
 
+  images:
+    needs: [tag, manual]
+    if: always() && (needs.tag.result == 'success' || needs.manual.result == 'success')
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/images.yml
+    with:
+      ref: ${{ needs.tag.outputs.tag || needs.manual.outputs.tag }}
+      push: true
+      version: ${{ needs.tag.outputs.version || needs.manual.outputs.version }}
+
   publish-pypi:
-    if: github.event_name == 'release'
     needs: build
     runs-on: ubuntu-latest
     environment: pypi

@@ -2,6 +2,9 @@
 config.json
 config.local.json
 
+# Release automation scratch file
+RELEASE_NOTES.md
+
 # Python
 __pycache__/
 *.py[cod]
