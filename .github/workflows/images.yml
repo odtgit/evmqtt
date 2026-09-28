@@ -55,6 +55,7 @@ jobs:
             type=raw,value=edge,enable=${{ inputs.push && inputs.version == '' }}
             type=raw,value=${{ inputs.version }},enable=${{ inputs.version != '' }}
             type=raw,value=latest,enable=${{ inputs.version != '' }}
+            type=raw,value=local,enable=${{ !inputs.push }}
       -
         name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
