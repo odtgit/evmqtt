@@ -16,7 +16,7 @@
     },
     "error": {
       "no_input": "No /dev/input/event* nodes. Map /dev/input into the Home Assistant container (see the README), then submit to retry.",
-      "permission_denied": "/dev/input/event* exists but none can be opened. Give Home Assistant read-write access (input group or a udev rule), then submit to retry.",
+      "permission_denied": "/dev/input/event* exists but none can be opened. python-evdev only uses nodes it may open read-write: add Home Assistant to the input group (Core) or use device_cgroup_rules c 13:* rw (Container), then submit to retry.",
       "no_devices": "No keyboard-like devices found. Submit to set up anyway; devices plugged in later appear disabled."
     },
     "abort": {
