@@ -112,7 +112,7 @@ def test_sigterm_shuts_down_cleanly_and_exits_zero(
         "/dev/input/event0", name="Kbd", capabilities=keyboard_capabilities()
     )
     monkeypatch.setattr(gateway_module, "Gateway", SigtermWhenConnected)
-    config = write_config(tmp_path, serverip="old", port=1883)
+    config = write_config(tmp_path, serverip="old", port=1883, devices=["Kbd"])
     assert main(["-c", str(config), "--auto-discover"]) == 0
     assert device.grab_calls == 1
     assert not device.grabbed

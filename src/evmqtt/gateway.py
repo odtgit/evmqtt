@@ -33,7 +33,13 @@ CLEANUP_WINDOW = 3.0
 
 
 def matches(info: DeviceInfo, selectors: tuple[str, ...]) -> bool:
-    return any(s in (info.id, info.path, info.name) for s in selectors)
+    """By id, name or path; a path may be a symlink (udev's /dev/input/by-id)."""
+    for s in selectors:
+        if s in (info.id, info.path, info.name):
+            return True
+        if s.startswith("/") and os.path.realpath(s) == info.path:
+            return True
+    return False
 
 
 @dataclass
@@ -79,11 +85,15 @@ class Gateway:
 
     # -- selection and initial state ------------------------------------
 
-    def selected(self, info: DeviceInfo) -> bool:
+    def listed(self, info: DeviceInfo) -> bool:
+        """Named in devices or enabled_devices, as opposed to auto-discovered."""
         cfg = self.config
-        if matches(info, cfg.devices) or matches(info, cfg.enabled_devices):
+        return matches(info, cfg.devices) or matches(info, cfg.enabled_devices)
+
+    def selected(self, info: DeviceInfo) -> bool:
+        if self.listed(info):
             return True
-        if not cfg.auto_discover:
+        if not self.config.auto_discover:
             return False
         return is_keyboard_like(info) and not is_virtual(info)
 
@@ -205,11 +215,14 @@ class Gateway:
         except OSError as err:
             self._reader_failed(device, f"cannot open: {err}")
             return
+        # Only listed devices are grabbed: an auto-discovered one may be the
+        # host's own keyboard, which must keep working.
+        grab = GrabMode.WHILE_ENABLED if self.listed(info) else GrabMode.NEVER
         reader = DeviceReader(
             handle,
             partial(self._on_key, device),
             info=info,
-            grab=GrabMode.WHILE_ENABLED,
+            grab=grab,
             enabled=device.enabled,
             on_stopped=partial(self._on_reader_stopped, device),
         )

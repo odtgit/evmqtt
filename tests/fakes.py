@@ -520,11 +520,15 @@ class FakeSysfs:
         event: str,
         *,
         virtual: bool = False,
+        uhid: bool = False,
         manufacturer: str | None = None,
         product: str | None = None,
     ) -> Path:
         self._n += 1
-        if virtual:
+        if uhid:
+            hid = f"0005:1234:5678.{self._n:04X}"
+            parent = self.root / "devices" / "virtual" / "misc" / "uhid" / hid / "input"
+        elif virtual:
             parent = self.root / "devices" / "virtual" / "input"
         else:
             usb = self.root / "devices" / "pci0000:00" / "usb1" / f"1-{self._n}"

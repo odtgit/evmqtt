@@ -24,14 +24,20 @@ def _input_node(info: DeviceInfo) -> Path | None:
 
 
 def is_virtual(info: DeviceInfo) -> bool:
-    """BUS_VIRTUAL, or a node under /sys/devices/virtual (uinput, keyd, ydotool)."""
+    """BUS_VIRTUAL, or a node under /sys/devices/virtual (uinput, keyd, ydotool).
+
+    uhid is the exception: BlueZ creates Bluetooth LE (HoG) keyboards and
+    remotes through /dev/uhid, so they sit under virtual/misc/uhid too.
+    """
     if info.bustype == BUS_VIRTUAL:
         return True
     node = _input_node(info)
     if node is None:
         return False
     virtual = (SYSFS_ROOT / "devices" / "virtual").resolve()
-    return node == virtual or virtual in node.parents
+    if node != virtual and virtual not in node.parents:
+        return False
+    return virtual / "misc" / "uhid" not in node.parents
 
 
 def _read(path: Path) -> str | None:

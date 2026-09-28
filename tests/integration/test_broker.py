@@ -155,6 +155,7 @@ def make_config(
         "state_file": str(tmp_path / "state.json"),
         "rescan_interval": 0,
         "name": "IT Gateway",
+        "devices": ["Kbd A"],
     }
     data.update(overrides)
     return Config.from_dict(data)

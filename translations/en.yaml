@@ -40,10 +40,10 @@ configuration:
     description: Key states reported as events (PRESS, RELEASE, REPEAT).
   devices:
     name: Input Devices
-    description: Extra devices to use, by stable id, path or name. Listed devices are used even if virtual or not keyboard-like. See the log or "evmqtt --list-devices" for ids.
+    description: Extra devices to use, by stable id, path or name. Listed devices are used even if virtual or not keyboard-like, and are grabbed while enabled (auto-discovered devices are not). See the log or "evmqtt --list-devices" for ids.
   enabled_devices:
     name: Enabled Devices
-    description: Devices enabled when first seen, by stable id, path or name. Empty enables all. After that the switch in Home Assistant decides, and the state is kept across restarts.
+    description: Devices enabled when first seen, by stable id, path or name; they are grabbed while enabled. Empty enables all. After that the switch in Home Assistant decides, and the state is kept across restarts.
   state_file:
     name: State File
     description: Where enable/disable state is stored. Default /data/evmqtt-state.json.
