@@ -1,0 +1,14 @@
+{
+  "entity": {
+    "event": {
+      "key": {
+        "default": "mdi:keyboard"
+      }
+    },
+    "switch": {
+      "enabled": {
+        "default": "mdi:keyboard-settings"
+      }
+    }
+  }
+}

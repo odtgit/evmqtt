@@ -34,3 +34,4 @@ htmlcov/
 
 # Type checking
 .mypy_cache/
+.venv-ha/
