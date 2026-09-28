@@ -13,7 +13,6 @@ from custom_components.evmqtt.const import (
     CONF_KEYSTATES,
     CONF_MQTT_BASE_TOPIC,
     CONF_MQTT_MIRROR,
-    CONF_NEW_DEVICES_ENABLED,
     CONF_RESCAN_INTERVAL,
     DOMAIN,
 )
@@ -44,7 +43,6 @@ def make_entry(**options: Any) -> MockConfigEntry:
             CONF_INCLUDE_VIRTUAL: False,
             CONF_KEYSTATES: ["press"],
             CONF_RESCAN_INTERVAL: 5,
-            CONF_NEW_DEVICES_ENABLED: False,
             CONF_MQTT_MIRROR: False,
             CONF_MQTT_BASE_TOPIC: BASE_TOPIC,
             **options,

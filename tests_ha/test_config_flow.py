@@ -15,7 +15,6 @@ from custom_components.evmqtt.const import (
     CONF_KEYSTATES,
     CONF_MQTT_BASE_TOPIC,
     CONF_MQTT_MIRROR,
-    CONF_NEW_DEVICES_ENABLED,
     CONF_RESCAN_INTERVAL,
     DOMAIN,
 )
@@ -75,7 +74,6 @@ async def test_user_flow_happy_path(
         CONF_INCLUDE_VIRTUAL: True,
         CONF_KEYSTATES: ["press"],
         CONF_RESCAN_INTERVAL: 5,
-        CONF_NEW_DEVICES_ENABLED: False,
         CONF_MQTT_MIRROR: False,
         CONF_MQTT_BASE_TOPIC: BASE_TOPIC,
     }
@@ -86,6 +84,20 @@ async def test_user_flow_happy_path(
     assert hass.states.get("switch.keyboard_enabled").state == "off"
     assert hass.states.get("switch.remote_enabled").state == "on"
     assert hass.states.get("event.keyd_virtual_keyboard_key") is not None
+
+
+async def test_user_flow_lists_bluetooth_le_remote(
+    hass: HomeAssistant, fake_evdev: FakeEvdevRegistry, sysfs: FakeSysfs
+) -> None:
+    ble = fake_evdev.add(
+        "/dev/input/event0", "BLE Remote", keyboard_capabilities(), bustype=0x05
+    )
+    sysfs.add("event0", uhid=True)
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+    assert _device_values(result) == [device_id(ble)]
+    assert result["description_placeholders"] == {"count": "1", "virtual": "0"}
 
 
 async def test_user_flow_single_instance(
@@ -160,7 +172,6 @@ async def test_options_flow_live_enable_without_reload(
                 CONF_KEYSTATES: ["press"],
                 CONF_RESCAN_INTERVAL: 5,
                 CONF_INCLUDE_VIRTUAL: False,
-                CONF_NEW_DEVICES_ENABLED: False,
             },
         )
         await hass.async_block_till_done()
@@ -185,7 +196,6 @@ async def test_options_flow_structural_change_reloads(
             CONF_KEYSTATES: [],
             CONF_RESCAN_INTERVAL: 5,
             CONF_INCLUDE_VIRTUAL: False,
-            CONF_NEW_DEVICES_ENABLED: False,
         },
     )
     assert result["type"] is FlowResultType.FORM
@@ -198,7 +208,6 @@ async def test_options_flow_structural_change_reloads(
             CONF_KEYSTATES: ["release", "press"],
             CONF_RESCAN_INTERVAL: 0,
             CONF_INCLUDE_VIRTUAL: False,
-            CONF_NEW_DEVICES_ENABLED: True,
         },
     )
     assert result["type"] is FlowResultType.CREATE_ENTRY
@@ -222,7 +231,6 @@ async def test_options_flow_mqtt_fields(
         CONF_KEYSTATES: ["press"],
         CONF_RESCAN_INTERVAL: 5,
         CONF_INCLUDE_VIRTUAL: False,
-        CONF_NEW_DEVICES_ENABLED: False,
         CONF_MQTT_MIRROR: True,
     }
     result = await hass.config_entries.options.async_configure(

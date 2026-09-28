@@ -10,7 +10,6 @@ CONF_ENABLED_DEVICES: Final = "enabled_devices"
 CONF_INCLUDE_VIRTUAL: Final = "include_virtual"
 CONF_KEYSTATES: Final = "keystates"
 CONF_RESCAN_INTERVAL: Final = "rescan_interval"
-CONF_NEW_DEVICES_ENABLED: Final = "new_devices_enabled"
 CONF_MQTT_MIRROR: Final = "mqtt_mirror"
 CONF_MQTT_BASE_TOPIC: Final = "mqtt_base_topic"
 

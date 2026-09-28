@@ -41,7 +41,6 @@ from .const import (
     CONF_KEYSTATES,
     CONF_MQTT_BASE_TOPIC,
     CONF_MQTT_MIRROR,
-    CONF_NEW_DEVICES_ENABLED,
     CONF_RESCAN_INTERVAL,
     DEFAULT_KEYSTATES,
     DEFAULT_RESCAN_INTERVAL,
@@ -60,7 +59,6 @@ class Settings:
     include_virtual: bool
     keystates: tuple[str, ...]
     rescan_interval: int
-    new_devices_enabled: bool
     mqtt_mirror: bool
     mqtt_base_topic: str
 
@@ -74,7 +72,6 @@ class Settings:
             rescan_interval=int(
                 options.get(CONF_RESCAN_INTERVAL, DEFAULT_RESCAN_INTERVAL)
             ),
-            new_devices_enabled=bool(options.get(CONF_NEW_DEVICES_ENABLED, False)),
             mqtt_mirror=bool(options.get(CONF_MQTT_MIRROR, False)),
             mqtt_base_topic=str(
                 options.get(CONF_MQTT_BASE_TOPIC) or default_base_topic()
@@ -223,9 +220,7 @@ class EvmqttHub:
         device = self.devices.get(info.id)
         new = device is None
         if device is None:
-            enabled = (
-                info.id in self.settings.enabled or self.settings.new_devices_enabled
-            )
+            enabled = info.id in self.settings.enabled
             device = TrackedDevice(id=info.id, name=info.name, enabled=enabled)
             self.devices[info.id] = device
             _LOGGER.info(
@@ -245,8 +240,6 @@ class EvmqttHub:
             config_entry_id=self.entry.entry_id, **self.device_info(device)
         )
         if new:
-            if device.enabled and info.id not in self.settings.enabled:
-                self._persist()
             async_dispatcher_send(self.hass, self.signal_new_device, device)
         if device.reader is None:
             await self._async_start_reader(device)

@@ -214,17 +214,6 @@ async def test_hotplugged_device_starts_disabled(
     assert entry.options[CONF_ENABLED_DEVICES] == []
 
 
-async def test_hotplugged_device_enabled_by_option(
-    hass: HomeAssistant, fake_evdev: FakeEvdevRegistry
-) -> None:
-    entry = await setup_entry(hass, new_devices_enabled=True)
-    kbd = fake_evdev.add("/dev/input/event5", "USB Keyboard", keyboard_capabilities())
-    await rescan(hass, entry)
-    assert hass.states.get("switch.usb_keyboard_enabled").state == "on"
-    assert kbd.grabbed
-    assert entry.options[CONF_ENABLED_DEVICES] == [device_id(kbd)]
-
-
 async def test_ebusy_marks_unavailable_and_logs_once(
     hass: HomeAssistant,
     fake_evdev: FakeEvdevRegistry,

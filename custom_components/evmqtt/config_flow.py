@@ -34,7 +34,6 @@ from .const import (
     CONF_KEYSTATES,
     CONF_MQTT_BASE_TOPIC,
     CONF_MQTT_MIRROR,
-    CONF_NEW_DEVICES_ENABLED,
     CONF_RESCAN_INTERVAL,
     DEFAULT_KEYSTATES,
     DEFAULT_RESCAN_INTERVAL,
@@ -108,7 +107,6 @@ class EvmqttConfigFlow(ConfigFlow, domain=DOMAIN):
                     CONF_INCLUDE_VIRTUAL: self._include_virtual,
                     CONF_KEYSTATES: list(DEFAULT_KEYSTATES),
                     CONF_RESCAN_INTERVAL: DEFAULT_RESCAN_INTERVAL,
-                    CONF_NEW_DEVICES_ENABLED: False,
                     CONF_MQTT_MIRROR: False,
                     CONF_MQTT_BASE_TOPIC: default_base_topic(),
                 },
@@ -202,10 +200,6 @@ class EvmqttOptionsFlow(OptionsFlow):
             vol.Required(
                 CONF_INCLUDE_VIRTUAL,
                 default=options.get(CONF_INCLUDE_VIRTUAL, False),
-            ): BooleanSelector(),
-            vol.Required(
-                CONF_NEW_DEVICES_ENABLED,
-                default=options.get(CONF_NEW_DEVICES_ENABLED, False),
             ): BooleanSelector(),
         }
         if show_mqtt:

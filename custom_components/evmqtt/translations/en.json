@@ -32,16 +32,14 @@
           "keystates": "Key states",
           "rescan_interval": "Rescan interval",
           "include_virtual": "Include virtual devices",
-          "new_devices_enabled": "Enable new devices",
           "mqtt_mirror": "MQTT mirror",
           "mqtt_base_topic": "MQTT base topic"
         },
         "data_description": {
-          "enabled_devices": "Enabled devices are grabbed.",
+          "enabled_devices": "Enabled devices are grabbed: their keys reach Home Assistant only. Devices first seen later start disabled.",
           "keystates": "Key states that fire events.",
           "rescan_interval": "Hotplug scan period in seconds. 0 disables hotplug.",
           "include_virtual": "Also manage uinput devices.",
-          "new_devices_enabled": "Grab newly seen devices immediately. Off is safer: a new keyboard on this host would otherwise stop typing locally.",
           "mqtt_mirror": "Also publish each event to BASE_TOPIC/DEVICE_ID/event, same payload as the evmqtt daemon.",
           "mqtt_base_topic": "Base topic for the MQTT mirror."
         }
