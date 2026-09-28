@@ -10,6 +10,25 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   config flow, native `event` and `switch` entities per device, hotplug,
   optional MQTT mirror with the daemon's event payload.
 
+## [2.1.0] - 2026-09-28
+
+Fixes the 2.0.0 auto-detection regressions from #20.
+
+### Fixed
+
+- Bluetooth LE keyboards and remotes (BlueZ, uhid) are selected by
+  auto-discovery again. Only uinput (keyd, ydotool) and `BUS_VIRTUAL`
+  devices count as virtual.
+- Symlinks work as selectors in `devices` and `enabled_devices`
+  (`/dev/input/rc`, `/dev/input/by-id/...`).
+
+### Changed
+
+- Only devices listed in `devices` or `enabled_devices` are grabbed, and only
+  while enabled. Auto-discovered devices are read and published but not
+  grabbed, so their keys also reach the host. List your devices if you rely
+  on grabbing.
+
 ## [2.0.0] - 2026-09-27
 
 Breaking release. See [Upgrading from 1.x](README.md#upgrading-from-1x)
