@@ -75,6 +75,13 @@ add-on's terminal (**Settings** → **Add-ons** → **evmqtt** → **Terminal**
 tab, if the add-on has one enabled), to see every device with its stable
 id and whether it is selected.
 
+## Privacy
+
+Every key of an enabled device is published to MQTT and shown on its
+Home Assistant event entity, where any HA user or access token can read it,
+and HA's recorder stores the event attributes in history. Enable remotes
+and macro pads, not a keyboard used to type passwords.
+
 ## Upgrading from 1.x
 
 2.0 is a breaking release: topics, entities, payloads and some config keys

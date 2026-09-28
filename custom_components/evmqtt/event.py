@@ -27,6 +27,9 @@ class EvmqttKeyEvent(EvmqttEntity, EventEntity):
     _key = "event"
     _attr_device_class = EventDeviceClass.BUTTON
     _attr_translation_key = "key"
+    _unrecorded_attributes = frozenset(
+        {"key", "modifiers", "state", "device_id", "device_name", "device_path"}
+    )
 
     def __init__(self, hub: EvmqttHub, device: TrackedDevice) -> None:
         super().__init__(hub, device)

@@ -482,7 +482,12 @@ and model from the USB descriptors, model id `vendor:product`.
   are not plugged in can be deleted from their device page.
 - Newly seen devices get entities with the switch off: not grabbed, no
   events. A new keyboard on the HA host keeps typing locally.
-
+- Privacy: an enabled full keyboard sends every keystroke to HA. Any HA user
+  or access token can read them live from the event entity (`/api/states`,
+  websocket). `key`, `modifiers`, `state` and the `device_*` attributes are
+  excluded from the recorder, so history keeps only when a press happened
+  and its type. The MQTT mirror publishes them to the broker too. Enable
+  remotes and macro pads, not the keyboard people type passwords on.
 
 ```yaml
 automation:
