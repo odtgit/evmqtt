@@ -11,7 +11,7 @@ Based on the original [gist](https://gist.github.com/jamesbulpin/b940e7d81e2e651
 
 - Home Assistant MQTT device discovery: one HA device per input device, with an `event` entity for keys and a `switch` to enable or disable it
 - Stable device ids that survive reboots, `eventN` renumbering and (with a serial) port moves
-- Grabs only enabled devices; disabling a device releases it back to the system
+- Grabs only devices you list and have enabled; auto-discovered devices are read without taking them from the system
 - Enable state persists across restarts
 - Gateway and per-device availability (LWT), hotplug support
 - Keeps running while the broker is down and reconnects with backoff
@@ -69,15 +69,14 @@ docker run -d \
   evmqtt
 ```
 
-`c 13:* rw` gives the container every input device, and with the default
-selection evmqtt grabs every keyboard it finds, including the one on the
-host's console. On a machine with a keyboard you still need, either list the
-device you want in `devices` (with `"auto_discover": false`) or
-`enabled_devices`, or pass only that device instead of the cgroup rule
-(`--device /dev/input/rc`; a device passed this way is not seen again after it
-is replugged). Paths may be udev symlinks such as `/dev/input/by-id/...`.
+`c 13:* rw` gives the container every input device, so auto-discovery also
+finds the host's own keyboard. It is read but not grabbed, so it keeps
+working, but its keys are published too. List the device you want in
+`devices` or `enabled_devices` (see [Device selection](#device-selection)),
+or pass only that device instead of the cgroup rule (`--device /dev/input/rc`;
+a device passed this way is not seen again after it is replugged).
 
-Or use Docker Compose (also expects a `config.json` created from `config.example.json` as above; the same caution applies):
+Or use Docker Compose (also expects a `config.json` created from `config.example.json` as above):
 
 ```bash
 docker compose up -d
@@ -135,8 +134,8 @@ The same keys work in `config.json` and in the add-on options.
 | `discovery_prefix` | `homeassistant` | HA discovery prefix |
 | `base_topic` | `evmqtt/<hostname>` | Root of all state, event and command topics. Must not be under `discovery_prefix`. |
 | `auto_discover` | `true` | Select keyboard-like devices automatically. When `false`, only `devices` are used. |
-| `devices` | `[]` | Extra devices by stable id, path or name. Listed devices are used even if virtual or not keyboard-like. |
-| `enabled_devices` | `[]` (all) | Initial state for devices seen for the first time, by id, path or name. Empty enables all. |
+| `devices` | `[]` | Extra devices by stable id, path or name. Listed devices are used even if virtual or not keyboard-like, and are grabbed while enabled. |
+| `enabled_devices` | `[]` (all) | Initial state for devices seen for the first time, by id, path or name. Empty enables all. Listed devices are grabbed while enabled. |
 | `keystates` | `["PRESS"]` | Any of `PRESS`, `REPEAT`, `RELEASE` |
 | `rescan_interval` | `5` | Seconds between hotplug scans, `0` disables |
 | `state_file` | see below | Where the enable state is kept |
@@ -193,11 +192,16 @@ The id is also in the log and in every event payload (`deviceId`).
 
 ### Enable, grab and persistence
 
-An enabled device is grabbed (`EVIOCGRAB`): its keys reach evmqtt only, not
-the console or desktop. Turning the switch off releases the grab and stops
-events; on turns both back on. A device that cannot be grabbed (for example
-because another program holds it) is reported unavailable and retried on the
-next rescan.
+A device listed in `devices` or `enabled_devices` is grabbed (`EVIOCGRAB`)
+while it is enabled: its keys reach evmqtt only, not the console or desktop.
+Turning the switch off releases the grab and stops events; on turns both back
+on. A device that cannot be grabbed (for example because another program
+holds it) is reported unavailable and retried on the next rescan.
+
+A device found only by auto-discovery is never grabbed, since it may be the
+keyboard you use on that machine: its keys are published while it is enabled
+and still reach the system. List a remote to grab it, so that keys like
+`KEY_POWER` or `KEY_SLEEP` on it do not also act on the host.
 
 The switch state is saved to a state file, keyed by device id:
 
@@ -395,6 +399,8 @@ move when `eventN` changes.
 - `devices` and `enabled_devices` accept ids and names as well as paths, and
   `devices` no longer requires `auto_discover: false`.
 - `auto_discover` now defaults to `true` in `config.json` too.
+- Only devices listed in `devices` or `enabled_devices` are grabbed. 1.x and
+  2.0.0 grabbed every device they used; list your devices to keep that.
 - Add-on: `mqtt_host` can be left empty to use the Mosquitto add-on.
 - Enable/disable is now kept in a state file instead of the retained switch
   topic; the first 2.0 start seeds it from `enabled_devices`.

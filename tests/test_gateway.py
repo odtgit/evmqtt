@@ -303,7 +303,7 @@ async def test_event_modifiers_aliases_and_ignored_keys(
 
 async def test_switch_off_ungrabs_and_on_grabs(fake_evdev, fake_mqtt, tmp_path) -> None:
     device = add_kbd(fake_evdev)
-    config = make_config(tmp_path)
+    config = make_config(tmp_path, devices=["Kbd A"])
     gateway = await start(config)
     try:
         client = fake_mqtt.last()
@@ -343,7 +343,9 @@ async def test_switch_on_with_grab_failure_stays_off(
     fake_evdev, fake_mqtt, tmp_path
 ) -> None:
     device = add_kbd(fake_evdev)
-    gateway = await start(make_config(tmp_path, enabled_devices=["nothing"]))
+    gateway = await start(
+        make_config(tmp_path, devices=["Kbd A"], enabled_devices=["nothing"])
+    )
     try:
         client = fake_mqtt.last()
         dev_id = kbd_id()
@@ -429,7 +431,7 @@ async def test_unwritable_state_file_is_not_fatal(
 
 async def test_corrupt_state_file_is_ignored(fake_evdev, fake_mqtt, tmp_path) -> None:
     device = add_kbd(fake_evdev)
-    config = make_config(tmp_path)
+    config = make_config(tmp_path, devices=["Kbd A"])
     config.state_path.write_text("{broken")
     gateway = await start(config)
     try:
@@ -471,7 +473,7 @@ async def test_broker_down_at_startup_then_up(
 ) -> None:
     device = add_kbd(fake_evdev)
     fake_mqtt.auto_connect = False
-    gateway = Gateway(make_config(tmp_path), cleanup_window=0.01)
+    gateway = Gateway(make_config(tmp_path, devices=["Kbd A"]), cleanup_window=0.01)
     await gateway.start()
     try:
         assert await until(lambda: gateway.mqtt is not None)
@@ -553,6 +555,35 @@ async def test_default_selection_excludes_virtual_mice_and_power_buttons(
         await gateway.stop()
 
 
+async def test_auto_discovered_devices_are_read_but_not_grabbed(
+    fake_evdev, fake_mqtt, tmp_path
+) -> None:
+    """#20: a discovered device may be the host's keyboard; only listed ones
+    are grabbed."""
+    a = add_kbd(fake_evdev, "/dev/input/event0", "Kbd A")
+    b = add_kbd(fake_evdev, "/dev/input/event1", "Kbd B")
+    gateway = await start(make_config(tmp_path, devices=["Kbd B"]))
+    try:
+        client = fake_mqtt.last()
+        dev_id = kbd_id()
+        assert (a.grabbed, b.grabbed) == (False, True)
+        assert last(client, topic(dev_id, "switch/state")).payload == "ON"
+        a.push(press("KEY_A"))
+        assert await until(lambda: published(client, topic(dev_id, "event")))
+
+        client.inject(topic(dev_id, "switch/set"), "OFF")
+        assert await until(
+            lambda: last(client, topic(dev_id, "switch/state")).payload == "OFF"
+        )
+        client.inject(topic(dev_id, "switch/set"), "ON")
+        assert await until(
+            lambda: last(client, topic(dev_id, "switch/state")).payload == "ON"
+        )
+        assert a.grab_calls == 0
+    finally:
+        await gateway.stop()
+
+
 async def test_default_selection_keeps_bluetooth_le_devices_behind_uhid(
     fake_evdev, fake_mqtt, sysfs, tmp_path
 ) -> None:
@@ -609,7 +640,7 @@ async def test_auto_discover_off_uses_only_listed_devices(
 
 
 async def test_hotplug_add_unplug_replug(fake_evdev, fake_mqtt, tmp_path) -> None:
-    gateway = await start(make_config(tmp_path))
+    gateway = await start(make_config(tmp_path, devices=["Kbd A"]))
     client = fake_mqtt.last()
     dev_id = kbd_id()
     try:
@@ -660,7 +691,7 @@ async def test_removed_without_read_error_goes_offline(
 async def test_grab_failure_retries_on_rescan(fake_evdev, fake_mqtt, tmp_path) -> None:
     device = add_kbd(fake_evdev)
     device.fail_grab()
-    gateway = await start(make_config(tmp_path))
+    gateway = await start(make_config(tmp_path, devices=["Kbd A"]))
     try:
         assert await until(
             lambda: last(client_of(fake_mqtt), discovery_topic(kbd_id()))
@@ -699,7 +730,9 @@ async def test_devices_seen_before_but_absent_are_offline(
 async def test_rescan_loop_picks_up_new_devices(
     fake_evdev, fake_mqtt, tmp_path
 ) -> None:
-    gateway = await start(make_config(tmp_path, rescan_interval=0.01))
+    gateway = await start(
+        make_config(tmp_path, devices=["Kbd A"], rescan_interval=0.01)
+    )
     try:
         device = add_kbd(fake_evdev)
         assert await until(lambda: device.grabbed)
