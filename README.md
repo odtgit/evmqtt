@@ -84,15 +84,15 @@ cp config.example.json config.json
 docker run -d \
   --name evmqtt \
   --network host \
-  --device-cgroup-rule='c 13:* rmw' \
-  -v /dev/input:/dev/input \
+  --device-cgroup-rule='c 13:* rw' \
+  -v /dev/input:/dev/input:ro \
   -v $(pwd)/config.json:/data/config.json:ro \
   -v evmqtt-state:/var/lib/evmqtt \
   -e STATE_DIRECTORY=/var/lib/evmqtt \
   ghcr.io/odtgit/evmqtt:latest
 ```
 
-`c 13:* rmw` gives the container every input device, so auto-discovery also
+`c 13:* rw` gives the container every input device, so auto-discovery also
 finds the host's own keyboard. It is read but not grabbed, so it keeps
 working, but its keys are published too. List the device you want in
 `devices` or `enabled_devices` (see [Device selection](#device-selection)),
@@ -143,14 +143,14 @@ Either way `evmqtt` ends up on `/usr/local/bin`, which is on the `PATH` that
 Then configure and install the unit (both files are in this repo):
 
 ```bash
+EVMQTT_VERSION=2.1.0  # the release you installed: pip show evmqtt
+EVMQTT_RAW=https://raw.githubusercontent.com/odtgit/evmqtt/refs/tags/v$EVMQTT_VERSION
 sudo mkdir -p /etc/evmqtt
-sudo curl -fsSL -o /etc/evmqtt/config.json \
-  https://raw.githubusercontent.com/odtgit/evmqtt/master/config.example.json
+sudo curl -fsSL -o /etc/evmqtt/config.json "$EVMQTT_RAW/config.example.json"
 sudo chmod 644 /etc/evmqtt/config.json
 # Edit /etc/evmqtt/config.json with your settings
 
-sudo curl -fsSL -o /etc/systemd/system/evmqtt.service \
-  https://raw.githubusercontent.com/odtgit/evmqtt/master/evmqtt.service
+sudo curl -fsSL -o /etc/systemd/system/evmqtt.service "$EVMQTT_RAW/evmqtt.service"
 sudo systemctl daemon-reload
 sudo systemctl enable --now evmqtt
 ```
@@ -409,14 +409,16 @@ services:
     network_mode: host
     volumes:
       - ./config:/config
-      - /dev/input:/dev/input
+      - /dev/input:/dev/input:ro
     device_cgroup_rules:
-      - "c 13:* rmw"
+      - "c 13:* rw"
 ```
 
-- `c 13:* rmw` allows every input device node (major 13), including ones
-  plugged in later. The read-write bind mount (no `:ro`) makes new nodes
-  appear inside the container.
+- `c 13:* rw` allows every input device node (major 13), including ones
+  plugged in later; the bind mount shows new nodes without a restart (CI
+  checks this). python-evdev only lists nodes it may open read-write, so
+  `c 13:* r` finds no devices. `:ro` keeps the container from creating or
+  removing nodes, it does not stop writes to them.
 - `devices: [/dev/input/event3]` works for one fixed device but breaks on
   hotplug and `eventN` renumbering.
 - The image runs as root. With `user:` set, add
@@ -480,6 +482,7 @@ and model from the USB descriptors, model id `vendor:product`.
   are not plugged in can be deleted from their device page.
 - Newly seen devices get entities with the switch off: not grabbed, no
   events. A new keyboard on the HA host keeps typing locally.
+
 
 ```yaml
 automation:

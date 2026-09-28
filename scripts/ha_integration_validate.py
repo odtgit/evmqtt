@@ -8,9 +8,11 @@ manifest requirement (evmqtt from PyPI) on first use.
 
 Without --uinput HA gets no /dev/input and the flow must stop at no_input.
 With --uinput (root, EVMQTT_UINPUT=1, CI only: keystrokes leak into a local
-desktop) a uinput remote is created and /dev/input is passed in the way the
-README documents for HA Container. Checks entities, a key press reaching the
-event entity, grab and ungrab via the switch, EBUSY, reload and unplug.
+desktop) /dev/input is passed in the way the README documents for HA
+Container (read-only bind mount, c 13:* rw) and uinput devices are created
+after HA is up, so they reach the container by hotplug. Checks entities, a
+key press reaching the event entity, grab and ungrab via the switch, EBUSY,
+reload, a device hotplugged after setup starting disabled, and unplug.
 """
 
 from __future__ import annotations
@@ -34,6 +36,7 @@ from ha_validate import HA, HA_IMAGE, RESULTS, check, find, free_port, run  # no
 
 ROOT = Path(__file__).resolve().parent.parent
 DEVICE_NAME = "evmqtt CI Remote"
+HOTPLUG_NAME = "evmqtt CI Keypad"
 
 
 def api(ha: HA, method: str, path: str, body: Any = None, timeout: float = 300) -> Any:
@@ -103,8 +106,12 @@ def validate_no_input(ha: HA) -> None:
     api(ha, "DELETE", f"/api/config/config_entries/flow/{step['flow_id']}")
 
 
-def validate_uinput(ha: HA, ui: Any, path: str) -> None:
+def validate_uinput(ha: HA, ui: Any) -> None:
+    import evdev
     from evdev import ecodes
+
+    path = ui.device.path
+    print(f"     uinput remote at {path}, created after HA start", flush=True)
 
     flow = "/api/config/config_entries/flow"
     step = api(ha, "POST", flow, {"handler": "evmqtt"})
@@ -169,8 +176,6 @@ def validate_uinput(ha: HA, ui: Any, path: str) -> None:
     ok = wait(lambda: states()[switch_id]["state"] == "off")
     check(ok and not host_grab_busy(path), "switch off ungrabs")
 
-    import evdev
-
     holder = evdev.InputDevice(path)
     holder.grab()
     try:
@@ -202,6 +207,24 @@ def validate_uinput(ha: HA, ui: Any, path: str) -> None:
     ok = wait(lambda: states()[event_id]["attributes"].get("key") == "KEY_B")
     check(ok, "events flow after reload")
 
+    late = evdev.UInput(name=HOTPLUG_NAME)
+    try:
+        ok = wait(lambda: find(states(), "switch", "ci_keypad_enabled"), 60)
+        late_switch = find(states(), "switch", "ci_keypad_enabled") or ""
+        late_event = find(states(), "event", "ci_keypad_key") or ""
+        check(bool(ok), f"device hotplugged after setup gets entities: {late_switch}")
+        check(
+            bool(late_switch) and states()[late_switch]["state"] == "off",
+            "hotplugged device starts disabled",
+        )
+        check(
+            bool(late_event) and states()[late_event]["state"] != "unavailable",
+            "hotplugged device is read (available)",
+        )
+        check(not host_grab_busy(late.device.path), "hotplugged device not grabbed")
+    finally:
+        late.close()
+
     ui.close()
     ok = wait(lambda: states()[event_id]["state"] == "unavailable")
     check(ok, "unplugged device goes unavailable")
@@ -218,14 +241,6 @@ def main() -> int:
         parser.error("--uinput needs EVMQTT_UINPUT=1 (keystrokes leak into a desktop)")
 
     ui = None
-    path = ""
-    if args.uinput:
-        import evdev
-
-        ui = evdev.UInput(name=DEVICE_NAME)
-        path = ui.device.path
-        print(f"uinput remote at {path}", flush=True)
-
     port = free_port()
     name = f"evmqtt-integration-validate-{port}"
     with tempfile.TemporaryDirectory() as tmp:
@@ -238,7 +253,7 @@ def main() -> int:
             "    custom_components.evmqtt: debug\n"
         )
         devices = (
-            ["--device-cgroup-rule", "c 13:* rmw", "-v", "/dev/input:/dev/input"]
+            ["--device-cgroup-rule", "c 13:* rw", "-v", "/dev/input:/dev/input:ro"]
             if args.uinput
             else []
         )
@@ -254,8 +269,11 @@ def main() -> int:
             print(f"Waiting for {args.image} on :{port}", flush=True)
             ha.wait_up()
             ha.onboard()
-            if ui is not None:
-                validate_uinput(ha, ui, path)
+            if args.uinput:
+                import evdev
+
+                ui = evdev.UInput(name=DEVICE_NAME)
+                validate_uinput(ha, ui)
             else:
                 validate_no_input(ha)
             pip = subprocess.run(
