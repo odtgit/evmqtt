@@ -226,9 +226,12 @@ def validate_uinput(ha: HA, ui: Any) -> None:
         late.close()
 
     ui.close()
-    ok = wait(lambda: states()[event_id]["state"] == "unavailable")
-    check(ok, "unplugged device goes unavailable")
-    check(states()[switch_id]["state"] == "unavailable", "switch unavailable unplugged")
+    ok = wait(lambda: states()[switch_id]["state"] == "unavailable")
+    check(ok, "switch unavailable unplugged")
+    check(
+        states()[event_id]["state"] != "unavailable",
+        "event entity stays available unplugged",
+    )
 
 
 def main() -> int:

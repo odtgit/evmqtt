@@ -170,11 +170,11 @@ async def test_unplug_and_replug(
     remote.unplug()
     fake_evdev.remove(REMOTE)
     await settle(hass, remote)
-    assert hass.states.get("event.remote_key").state == STATE_UNAVAILABLE
+    assert hass.states.get("event.remote_key").state != STATE_UNAVAILABLE
     assert hass.states.get("switch.remote_enabled").state == STATE_UNAVAILABLE
 
     await rescan(hass, entry)
-    assert hass.states.get("event.remote_key").state == STATE_UNAVAILABLE
+    assert hass.states.get("event.remote_key").state != STATE_UNAVAILABLE
 
     back = fake_evdev.add(REMOTE, "Remote", keyboard_capabilities())
     async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=6))
@@ -196,7 +196,7 @@ async def test_known_device_absent_at_start(
     fake_evdev.remove(REMOTE)
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
-    assert hass.states.get("event.remote_key").state == STATE_UNAVAILABLE
+    assert hass.states.get("event.remote_key").state != STATE_UNAVAILABLE
     assert hass.states.get("switch.remote_enabled").state == STATE_UNAVAILABLE
     assert entry.options[CONF_ENABLED_DEVICES] == [device_id(remote)]
 
@@ -214,7 +214,7 @@ async def test_hotplugged_device_starts_disabled(
     assert entry.options[CONF_ENABLED_DEVICES] == []
 
 
-async def test_ebusy_marks_unavailable_and_logs_once(
+async def test_ebusy_keeps_event_available_and_logs_once(
     hass: HomeAssistant,
     fake_evdev: FakeEvdevRegistry,
     caplog: pytest.LogCaptureFixture,
@@ -222,7 +222,7 @@ async def test_ebusy_marks_unavailable_and_logs_once(
     remote = fake_evdev.add(REMOTE, "Remote", keyboard_capabilities())
     remote.fail_grab(OSError(errno.EBUSY, "Device or resource busy"))
     entry = await setup_entry(hass, enabled_devices=[device_id(remote)])
-    assert hass.states.get("event.remote_key").state == STATE_UNAVAILABLE
+    assert hass.states.get("event.remote_key").state != STATE_UNAVAILABLE
     assert hass.states.get("switch.remote_enabled").state == "on"
     await rescan(hass, entry)
     await rescan(hass, entry)

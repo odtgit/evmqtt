@@ -380,8 +380,10 @@ left out when unknown, `model_id` is `vendor:product`. The gateway device
 has a `Status` connectivity binary_sensor on `<base>/status`. Discovery needs
 Home Assistant 2024.12 or later.
 
-A device that is unplugged goes unavailable and keeps its entities; it comes
-back when plugged in again.
+A device that is unplugged keeps its entities and its switch goes unavailable;
+it comes back when plugged in again. The event entity follows only the gateway
+status, so a reconnecting device does not replay its last key to state
+triggers.
 
 ## Home Assistant
 
@@ -496,8 +498,10 @@ and model from the USB descriptors, model id `vendor:product`.
   their own, they show up in `modifiers`.
 - `switch.<device>_enabled` (config): on grabs the device, so its keys reach
   only HA. Off releases it. Stored in the entry options, survives restarts.
-- Unplugged: both entities unavailable, kept, back on replug. Devices that
-  are not plugged in can be deleted from their device page.
+- Unplugged: the switch goes unavailable (presence), the event entity stays
+  available so a reconnecting device (e.g. a sleeping Bluetooth remote) does
+  not replay the last key to state triggers. Both are kept, back on replug.
+  Devices that are not plugged in can be deleted from their device page.
 - Newly seen devices get entities with the switch off: not grabbed, no
   events. A new keyboard on the HA host keeps typing locally.
 - Privacy: an enabled full keyboard sends every keystroke to HA. Any HA user
@@ -535,7 +539,7 @@ No discovery: the entities are native.
 
 - Only one process can grab a device. With the add-on or daemon and this
   integration on the same device, the second grab fails with `EBUSY`. The
-  integration logs one warning, marks the event entity unavailable and
+  integration logs one warning, keeps the event entity available and
   retries on every rescan; the switch stays usable. Switch off reads the
   device without grabbing. Use one of them per device.
 - HA's built-in `keyboard_remote` is YAML only, always grabs, and fires

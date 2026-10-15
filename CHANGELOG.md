@@ -2,6 +2,16 @@
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.1.0] - 2026-10-15
+
+### Fixed
+
+- The event entity no longer goes unavailable when its device disappears (#28).
+  On reconnect Home Assistant replayed the last key to `trigger: state`
+  automations (a sleeping Bluetooth remote fired a phantom press on every
+  wake). The event entity now follows only the gateway status (MQTT discovery)
+  or stays available (HACS integration); the switch still shows presence.
+
 ## [3.0.0] - 2026-09-28
 
 Breaking release. See [Upgrading to 3.0](README.md#upgrading-to-30).
