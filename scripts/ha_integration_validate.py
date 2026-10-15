@@ -1,10 +1,12 @@
 """Validate the HACS integration (custom_components/evmqtt) in a real Home Assistant.
 
 Starts ghcr.io/home-assistant/home-assistant with custom_components mounted,
-onboards it and drives the config flow over the REST API. HA installs the
-manifest requirement (evmqtt from PyPI) on first use.
+onboards it and drives the config flow over the REST API. A wheel built from
+this checkout is installed into the container first, so HA finds the manifest
+requirement satisfied and the branch's evmqtt is what runs. --pypi skips that
+and lets HA install the pinned evmqtt from PyPI (post-release check).
 
-    .venv/bin/python scripts/ha_integration_validate.py [--image IMAGE] [--keep]
+    .venv/bin/python scripts/ha_integration_validate.py [--image IMAGE] [--keep] [--pypi]
 
 Without --uinput HA gets no /dev/input and the flow must stop at no_input.
 With --uinput (root, EVMQTT_UINPUT=1, CI only: keystrokes leak into a local
@@ -239,6 +241,9 @@ def main() -> int:
     parser.add_argument("--image", default=HA_IMAGE)
     parser.add_argument("--keep", action="store_true", help="leave the container")
     parser.add_argument("--uinput", action="store_true", help="CI only, needs root")
+    parser.add_argument(
+        "--pypi", action="store_true", help="install evmqtt from PyPI, not the checkout"
+    )
     args = parser.parse_args()
     if args.uinput and os.environ.get("EVMQTT_UINPUT") != "1":
         parser.error("--uinput needs EVMQTT_UINPUT=1 (keystrokes leak into a desktop)")
@@ -260,6 +265,12 @@ def main() -> int:
             if args.uinput
             else []
         )
+        wheels = Path(tmp) / "wheels"
+        if not args.pypi:
+            run(
+                sys.executable, "-m", "pip", "wheel", "--no-deps", "-q",
+                "-w", str(wheels), str(ROOT),
+            )  # fmt: skip
         try:
             run(
                 "docker", "create", "--name", name, "--network", "host",
@@ -267,7 +278,13 @@ def main() -> int:
                 *devices, args.image,
             )  # fmt: skip
             run("docker", "cp", str(config), f"{name}:/config/configuration.yaml")
+            if not args.pypi:
+                run("docker", "cp", str(wheels), f"{name}:/tmp/wheels")
             run("docker", "start", name)
+            if not args.pypi:
+                (wheel,) = (w.name for w in wheels.glob("evmqtt-*.whl"))
+                whl = f"/tmp/wheels/{wheel}"
+                run("docker", "exec", name, "uv", "pip", "install", whl)
             ha = HA(port)
             print(f"Waiting for {args.image} on :{port}", flush=True)
             ha.wait_up()
