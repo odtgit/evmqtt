@@ -145,13 +145,7 @@ async def test_discovery_payloads_full_structure(
                     "payload_available": "online",
                     "payload_not_available": "offline",
                 },
-                {
-                    "topic": topic(dev_id, "availability"),
-                    "payload_available": "online",
-                    "payload_not_available": "offline",
-                },
             ],
-            "availability_mode": "all",
             "components": {
                 "event": {
                     "platform": "event",
@@ -168,6 +162,19 @@ async def test_discovery_payloads_full_structure(
                     "name": "Enabled",
                     "icon": "mdi:keyboard-settings",
                     "entity_category": "config",
+                    "availability": [
+                        {
+                            "topic": f"{BASE}/status",
+                            "payload_available": "online",
+                            "payload_not_available": "offline",
+                        },
+                        {
+                            "topic": topic(dev_id, "availability"),
+                            "payload_available": "online",
+                            "payload_not_available": "offline",
+                        },
+                    ],
+                    "availability_mode": "all",
                     "state_topic": topic(dev_id, "switch/state"),
                     "command_topic": topic(dev_id, "switch/set"),
                     "payload_on": "ON",

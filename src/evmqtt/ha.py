@@ -143,11 +143,7 @@ def device_discovery(
     return {
         "device": device_block(topics, info),
         "origin": ORIGIN,
-        "availability": [
-            _availability(topics.status),
-            _availability(topics.availability(info.id)),
-        ],
-        "availability_mode": "all",
+        "availability": [_availability(topics.status)],
         "components": {
             "event": {
                 "platform": "event",
@@ -164,6 +160,11 @@ def device_discovery(
                 "name": "Enabled",
                 "icon": "mdi:keyboard-settings",
                 "entity_category": "config",
+                "availability": [
+                    _availability(topics.status),
+                    _availability(topics.availability(info.id)),
+                ],
+                "availability_mode": "all",
                 "state_topic": topics.switch_state(info.id),
                 "command_topic": topics.switch_command(info.id),
                 "payload_on": ON,

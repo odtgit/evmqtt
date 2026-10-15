@@ -35,6 +35,10 @@ class EvmqttKeyEvent(EvmqttEntity, EventEntity):
         super().__init__(hub, device)
         self._attr_event_types = hub.event_types
 
+    @property
+    def available(self) -> bool:
+        return True
+
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
         self.async_on_remove(
