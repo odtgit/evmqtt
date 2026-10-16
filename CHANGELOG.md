@@ -2,6 +2,13 @@
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.1.1] - 2026-10-16
+
+### Changed
+
+- CI: the HACS validation runs with no ignored checks, and the HA integration
+  test installs evmqtt from the checkout instead of PyPI. No code changes.
+
 ## [3.1.0] - 2026-10-15
 
 ### Fixed
